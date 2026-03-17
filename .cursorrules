@@ -1,0 +1,50 @@
+# BabaBang (아빠방) - 칭다오 한인 생활 AI 플랫폼
+
+## 기술 스택
+- Next.js 14 App Router + TypeScript + TailwindCSS
+- Zustand (상태관리), Framer Motion (애니메이션)
+
+## 디자인 시스템
+
+### 듀얼 테마
+- **다크 테마** (홈/마이): 배경 `#0a0a0f`
+- **라이트 테마** (커뮤니티/추천/북마크): 배경 `#f5f6fa`
+- 액센트: `#6c5ce7` (퍼플)
+- 골드: `#ffd32a`
+
+### 타이포그래피
+- 제목: **Outfit**
+- 본문: **Noto Sans KR**
+
+### 카드 스타일
+- 글래스모피즘: `backdrop-filter: blur(20px)` 사용
+- 카드 배경은 반투명 + 블러 처리
+
+### 레이아웃
+- **모바일 퍼스트**: 최대 너비 430px, 중앙 정렬
+- 컨테이너: `max-w-[430px] mx-auto`
+
+## 컴포넌트 구조
+- `components/layout` - 레이아웃(헤더, 탭바, 패널)
+- `components/chat` - AI 채팅 관련
+- `components/cards` - 카드 UI (게시글, 장소 등)
+- `components/pages` - 페이지별 컴포넌트
+- `components/modals` - 모달/다이얼로그
+
+## 네비게이션
+- **하단 탭**: 홈 / 커뮤니티 / 추천 / 북마크 / 마이 (5개)
+- 탭 전환 시 해당 화면의 테마(다크/라이트) 적용
+
+## AI 채팅
+- **우측 슬라이딩 패널**로 열기/닫기
+- 채팅 메시지: role `ai` | `user`, text
+
+## i18n
+- **한국어(ko) / 중국어(zh)** 토글
+- `src/lib/i18n.ts` 번역 객체 사용, `useStore`의 `lang` 상태와 연동
+
+## 코드 규칙
+- 타입은 `src/types/index.ts`에 정의
+- 전역 상태는 `src/stores/useStore.ts` (Zustand)
+- 목데이터는 `src/lib/mockData.ts`
+- 새 컴포넌트 작성 시 위 폴더 구조와 테마/폰트 규칙 준수
