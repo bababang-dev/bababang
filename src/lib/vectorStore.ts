@@ -88,7 +88,7 @@ export function getStoreSize(): number {
 /** 간단한 키워드 토큰화 (한글/영어/숫자) */
 function tokenize(text: string): string[] {
   return text
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/[^a-zA-Z0-9가-힣\u4e00-\u9fff\s]/g, " ")
     .split(/\s+/)
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s.length > 0);
