@@ -10,6 +10,17 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function cleanResponse(text: string): string {
+  return text
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/```[^`]*```/g, "")
+    .replace(/#{1,6}\s/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\n{5,}/g, "\n\n\n")
+    .trim();
+}
+
 const quickPrompts = [
   "quickFood",
   "quickVisa",
@@ -112,7 +123,7 @@ export function ChatPanel() {
         return;
       }
       const content = data.content ?? t.errorTryAgain;
-      addChatMessage({ role: "ai", text: content });
+      addChatMessage({ role: "ai", text: cleanResponse(content) });
       incrementQuestion();
       deductToken();
     } catch {
@@ -193,7 +204,10 @@ export function ChatPanel() {
                     }`}
                   >
                     {msg.role === "ai" ? (
-                      <div className="max-w-[85%] rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-3 text-sm text-white/95">
+                      <div
+                        className="max-w-[85%] rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-3 text-sm text-white/95"
+                        style={{ whiteSpace: "pre-line" }}
+                      >
                         {msg.text}
                       </div>
                     ) : (

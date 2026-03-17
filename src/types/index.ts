@@ -64,4 +64,5 @@ export interface User {
 export interface ChatMessage {
   role: "ai" | "user";
   text: string;
+  sources?: Array<{ title: string; link: string }>;
 }
