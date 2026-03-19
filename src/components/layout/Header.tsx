@@ -10,6 +10,7 @@ const titles: Record<string, { ko: string; zh: string }> = {
   recommend: { ko: "추천", zh: "推荐" },
   bookmark: { ko: "북마크", zh: "收藏" },
   my: { ko: "마이", zh: "我的" },
+  admin: { ko: "관리자", zh: "管理员" },
 };
 
 interface HeaderProps {

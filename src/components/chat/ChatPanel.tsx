@@ -2,9 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Send, Sparkles } from "lucide-react";
+import { X, Send, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import { i18n } from "@/lib/i18n";
+import type { ShopEntry } from "@/lib/shopDict";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -20,6 +21,9 @@ function cleanResponse(text: string): string {
     .replace(/\n{5,}/g, "\n\n\n")
     .trim();
 }
+
+const feedbackReasonsKo = ["정보가 틀림", "내용이 부족함", "엉뚱한 답변", "기타"] as const;
+const feedbackReasonsZh = ["信息不准确", "内容不足", "答非所问", "其他"] as const;
 
 const quickPrompts = [
   "quickFood",
@@ -68,9 +72,16 @@ export function ChatPanel() {
     setMembershipOpen,
     dailyQuestionCount,
     lastQuestionDate,
+    addFeedback,
+    incrementQuestionCount,
   } = useStore();
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [toast, setToast] = useState("");
+  const [feedbackMap, setFeedbackMap] = useState<Record<number, "good" | "bad">>(
+    {}
+  );
+  const [reasonPickerFor, setReasonPickerFor] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const t = i18n[lang].chat;
   const tokens = user?.tokens ?? 0;
@@ -89,6 +100,14 @@ export function ChatPanel() {
       behavior: "smooth",
     });
   }, [chatMessages, isTyping]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const faqPrompts = [t.faq1, t.faq2, t.faq3, t.faq4, t.faq5, t.faq6];
 
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
@@ -114,7 +133,15 @@ export function ChatPanel() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: messagesForApi }),
+        body: JSON.stringify({
+          messages: messagesForApi,
+          localShops:
+            typeof window !== "undefined"
+              ? ((JSON.parse(
+                  window.localStorage.getItem("bababang-admin-shops") ?? "[]"
+                ) as ShopEntry[]) || [])
+              : [],
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -123,8 +150,13 @@ export function ChatPanel() {
         return;
       }
       const content = data.content ?? t.errorTryAgain;
-      addChatMessage({ role: "ai", text: cleanResponse(content) });
+      addChatMessage({
+        role: "ai",
+        text: cleanResponse(content),
+        recommendedShops: data.recommendedShops ?? [],
+      });
       incrementQuestion();
+      incrementQuestionCount();
       deductToken();
     } catch {
       addChatMessage({ role: "ai", text: t.errorTryAgain });
@@ -204,11 +236,118 @@ export function ChatPanel() {
                     }`}
                   >
                     {msg.role === "ai" ? (
-                      <div
-                        className="max-w-[85%] rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-3 text-sm text-white/95"
-                        style={{ whiteSpace: "pre-line" }}
-                      >
-                        {msg.text}
+                      <div className="max-w-[85%]">
+                        <div
+                          className="rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-3 text-sm text-white/95"
+                          style={{ whiteSpace: "pre-line" }}
+                        >
+                          {msg.text}
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-2 text-white/50">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFeedbackMap((s) => ({ ...s, [i]: "good" }));
+                              setReasonPickerFor(null);
+                              addFeedback({
+                                messageIndex: i,
+                                feedback: "good",
+                                timestamp: new Date(),
+                              });
+                              setToast("감사합니다! 더 좋은 답변 드릴게요 😊");
+                            }}
+                            className={`p-1 rounded ${
+                              feedbackMap[i] === "good" ? "text-accent" : ""
+                            }`}
+                          >
+                            <ThumbsUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFeedbackMap((s) => ({ ...s, [i]: "bad" }));
+                              setReasonPickerFor(i);
+                              setToast("죄송해요. 어떤 점이 아쉬웠나요?");
+                            }}
+                            className={`p-1 rounded ${
+                              feedbackMap[i] === "bad" ? "text-accent" : ""
+                            }`}
+                          >
+                            <ThumbsDown className="w-4 h-4" />
+                          </button>
+                        </div>
+                        {reasonPickerFor === i && (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {(lang === "zh" ? feedbackReasonsZh : feedbackReasonsKo).map(
+                              (reason) => (
+                                <button
+                                  key={reason}
+                                  type="button"
+                                  onClick={() => {
+                                    addFeedback({
+                                      messageIndex: i,
+                                      feedback: "bad",
+                                      reason,
+                                      timestamp: new Date(),
+                                    });
+                                    setReasonPickerFor(null);
+                                    setToast("의견 반영할게요!");
+                                  }}
+                                  className="px-2 py-1 rounded-full text-[10px] bg-white/10 text-white/80"
+                                >
+                                  {reason}
+                                </button>
+                              )
+                            )}
+                          </div>
+                        )}
+                        {msg.recommendedShops && msg.recommendedShops.length > 0 && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="mt-2 rounded-2xl bg-white/5 border border-white/10 p-2"
+                          >
+                            <p className="text-[11px] text-white/50 px-1 mb-2">📍 추천 업체</p>
+                            <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
+                              {msg.recommendedShops.map((shop) => (
+                                <button
+                                  key={shop.zh}
+                                  type="button"
+                                  onClick={() =>
+                                    sendMessage(`${shop.koreanName} 자세히 알려줘`)
+                                  }
+                                  className="w-[220px] flex-shrink-0 text-left rounded-xl bg-white/10 px-3 py-2"
+                                >
+                                  <p className="text-sm font-semibold text-white">
+                                    {shop.category.includes("맛집")
+                                      ? "🍜"
+                                      : shop.category.includes("카페")
+                                        ? "☕"
+                                        : shop.category.includes("병원")
+                                          ? "🏥"
+                                          : "🏬"}{" "}
+                                    {shop.koreanName}
+                                  </p>
+                                  <p className="text-[11px] text-white/50 mt-0.5">{shop.zh}</p>
+                                  <p className="text-xs text-white/80 mt-1">📍 {shop.district}</p>
+                                  {shop.recommendMenu && (
+                                    <p className="text-xs text-white/80 mt-1">
+                                      🍜 {shop.recommendMenu}
+                                    </p>
+                                  )}
+                                  {shop.priceRange && (
+                                    <p className="text-xs text-white/80 mt-1">
+                                      💰 {shop.priceRange}
+                                    </p>
+                                  )}
+                                  {shop.tip && (
+                                    <p className="text-[11px] text-[#c9b8ff] mt-1.5">{shop.tip}</p>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
                       </div>
                     ) : (
                       <div
@@ -235,6 +374,26 @@ export function ChatPanel() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {chatMessages.length === 0 && (
+                <div className="mt-2">
+                  <p className="text-xs text-white/60 mb-2">
+                    {lang === "zh" ? "热门提问" : "인기 질문"}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {faqPrompts.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => sendMessage(prompt)}
+                        className="text-left rounded-xl bg-white/10 px-3 py-2 text-xs text-white/90"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 퀵액션 가로 스크롤 */}
@@ -285,6 +444,11 @@ export function ChatPanel() {
               </motion.button>
             </div>
           </motion.aside>
+          {toast && (
+            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-black/80 text-white text-xs px-3 py-2 rounded-full">
+              {toast}
+            </div>
+          )}
         </>
       )}
     </AnimatePresence>

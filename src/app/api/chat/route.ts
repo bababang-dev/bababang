@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { findShop } from "@/lib/shopDict";
+import { findShop, shopDict, type ShopEntry } from "@/lib/shopDict";
 import { findCategories } from "@/lib/categoryDict";
 
 function stripHtml(str: string): string {
@@ -145,10 +145,59 @@ async function fetchBlogContent(url: string): Promise<string> {
   }
 }
 
+function uniqueByZh(list: ShopEntry[]): ShopEntry[] {
+  return list.filter((s, idx, arr) => arr.findIndex((x) => x.zh === s.zh) === idx);
+}
+
+function matchRecommendedShops(
+  userMessage: string,
+  aiContent: string,
+  extraShops: ShopEntry[]
+): ShopEntry[] {
+  const merged = uniqueByZh([...shopDict, ...extraShops]);
+  const text = `${userMessage} ${aiContent}`;
+  const result: ShopEntry[] = [];
+
+  // 1) 별명 매칭
+  merged.forEach((shop) => {
+    if (shop.koreanNames.some((name) => userMessage.includes(name)) || userMessage.includes(shop.zh)) {
+      result.push(shop);
+    }
+  });
+
+  // 2) 카테고리 매칭
+  const categoryKeywords: Record<string, string[]> = {
+    맛집: ["맛집", "식당", "밥", "술", "고기", "양꼬치"],
+    카페: ["카페", "커피", "디저트", "차"],
+    병원: ["병원", "의원", "진료", "치과", "응급"],
+    마트: ["마트", "장보기", "쇼핑", "식재료"],
+  };
+  Object.entries(categoryKeywords).forEach(([category, keys]) => {
+    if (keys.some((k) => userMessage.includes(k))) {
+      merged.filter((s) => s.category.includes(category)).forEach((s) => result.push(s));
+    }
+  });
+
+  // 3) 지역 매칭
+  merged.forEach((shop) => {
+    if (text.includes(shop.district)) result.push(shop);
+  });
+
+  // 4) AI 답변 가게명 매칭
+  merged.forEach((shop) => {
+    if (aiContent.includes(shop.zh) || shop.koreanNames.some((n) => aiContent.includes(n))) {
+      result.push(shop);
+    }
+  });
+
+  return uniqueByZh(result);
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const messages = body.messages as Array<{ role: string; content: string }>;
+    const localShops = (body.localShops ?? []) as ShopEntry[];
     if (!Array.isArray(messages) || messages.length === 0) {
       return NextResponse.json({ error: "messages required" }, { status: 400 });
     }
@@ -359,7 +408,22 @@ ${searchContext}`
       .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
       .trim();
 
-    return NextResponse.json({ content, meta: { totalSources } });
+    const matchedShops = matchRecommendedShops(userMessage, content, localShops);
+
+    return NextResponse.json({
+      content,
+      recommendedShops: matchedShops.slice(0, 3).map((shop) => ({
+        zh: shop.zh,
+        koreanName: shop.koreanNames[0],
+        category: shop.category,
+        district: shop.district,
+        description: shop.description || "",
+        recommendMenu: shop.recommendMenu || "",
+        priceRange: shop.priceRange || "",
+        tip: shop.tip || "",
+      })),
+      meta: { totalSources },
+    });
   } catch (e) {
     console.error("Chat API error:", e);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

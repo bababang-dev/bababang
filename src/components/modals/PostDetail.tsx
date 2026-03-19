@@ -1,14 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Eye, MessageCircle, Heart, X } from "lucide-react";
 import { useStore } from "@/stores/useStore";
-import { mockPosts } from "@/lib/mockData";
 
 export function PostDetail() {
-  const { detailView, setDetailView, lang } = useStore();
+  const { detailView, setDetailView, lang, posts } = useStore();
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
   const postId = detailView && detailView.startsWith("p") ? detailView : null;
-  const post = postId ? mockPosts.find((p) => p.id === postId) : null;
+  const post = postId ? posts.find((p) => p.id === postId) : null;
 
   if (!post) return null;
 
@@ -17,6 +19,24 @@ export function PostDetail() {
   const time = lang === "zh" ? post.timeZh : post.time;
   const content = lang === "zh" ? post.contentZh : post.content;
   const tags = lang === "zh" ? post.tagsZh : post.tags;
+  const isChineseText = /[\u4e00-\u9fff]/.test(content);
+
+  const onTranslate = async () => {
+    if (translated || isTranslating) return;
+    setIsTranslating(true);
+    try {
+      const targetLang = isChineseText ? "ko" : "zh";
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content, targetLang }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setTranslated(data.translated ?? "");
+    } finally {
+      setIsTranslating(false);
+    }
+  };
 
   return (
     <>
@@ -69,6 +89,18 @@ export function PostDetail() {
             </span>
           </div>
           <p className="mt-4 text-black/90 leading-relaxed">{content}</p>
+          <button
+            type="button"
+            onClick={onTranslate}
+            className="mt-3 px-2 py-1 rounded-lg bg-black/5 text-xs"
+          >
+            🔄 번역
+          </button>
+          {(translated || isTranslating) && (
+            <div className="mt-2 rounded-xl bg-black/5 px-3 py-2 text-xs text-black/70">
+              {isTranslating ? "번역중..." : translated}
+            </div>
+          )}
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-4">
               {tags.map((tag) => (

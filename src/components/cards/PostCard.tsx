@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { MessageCircle, Eye, Heart, Bookmark } from "lucide-react";
+import { useState, type MouseEvent } from "react";
 import { useStore } from "@/stores/useStore";
 import type { Post } from "@/types";
 
@@ -18,11 +19,32 @@ export function PostCard({
 }: PostCardProps) {
   const { lang, togglePostBookmark, setDetailView } = useStore();
   const isBookmarked = useStore((s) => s.bookmarkedPosts.has(post.id));
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
 
   const category = lang === "zh" ? post.categoryZh : post.category;
   const title = lang === "zh" ? post.titleZh : post.title;
   const time = lang === "zh" ? post.timeZh : post.time;
   const content = lang === "zh" ? post.contentZh : post.content;
+  const isChineseText = /[\u4e00-\u9fff]/.test(content);
+
+  const onTranslate = async (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (translated || isTranslating) return;
+    setIsTranslating(true);
+    try {
+      const targetLang = isChineseText ? "ko" : "zh";
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content, targetLang }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setTranslated(data.translated ?? "");
+    } finally {
+      setIsTranslating(false);
+    }
+  };
 
   const cardClass = dark
     ? "glass-card-dark rounded-2xl border border-white/10 overflow-hidden"
@@ -89,6 +111,15 @@ export function PostCard({
       >
         {content}
       </p>
+      {(translated || isTranslating) && (
+        <div
+          className={`mt-2 rounded-xl px-3 py-2 text-xs ${
+            dark ? "bg-white/10 text-white/80" : "bg-black/5 text-black/70"
+          }`}
+        >
+          {isTranslating ? "번역중..." : translated}
+        </div>
+      )}
       <div
         className={`flex items-center gap-4 mt-3 text-xs ${
           dark ? "text-white/50" : "text-black/50"
@@ -106,6 +137,14 @@ export function PostCard({
           <Heart className="w-3.5 h-3.5" />
           {post.likes}
         </span>
+        <motion.button
+          type="button"
+          onClick={onTranslate}
+          className="p-1 rounded-lg hover:bg-black/5"
+          whileTap={{ scale: 0.9 }}
+        >
+          🔄 번역
+        </motion.button>
         <motion.button
           type="button"
           onClick={(e) => {

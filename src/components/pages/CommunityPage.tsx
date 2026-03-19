@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { PencilLine } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import { Header } from "@/components/layout/Header";
 import { PostCard } from "@/components/cards/PostCard";
-import { mockPosts } from "@/lib/mockData";
 import { i18n } from "@/lib/i18n";
 
 // 필터 값(한국어 키) - mockData category와 매칭
@@ -20,12 +20,12 @@ const categoryKeys = [
 
 export function CommunityPage() {
   const [filter, setFilter] = useState<(typeof categoryKeys)[number]>("전체");
-  const { lang } = useStore();
+  const { lang, posts, openWritePost } = useStore();
   const t = i18n[lang];
   const list =
     filter === "전체"
-      ? mockPosts
-      : mockPosts.filter((p) => p.category === filter);
+      ? posts
+      : posts.filter((p) => p.category === filter);
 
   return (
     <div
@@ -79,6 +79,23 @@ export function CommunityPage() {
             ))}
           </AnimatePresence>
         </div>
+      </div>
+      <div className="fixed bottom-0 left-1/2 z-50 -translate-x-1/2 w-full max-w-[430px] h-0 pointer-events-none">
+        <motion.button
+          type="button"
+          onClick={openWritePost}
+          className="absolute right-[76px] rounded-full pointer-events-auto flex items-center justify-center"
+          style={{
+            bottom: 88,
+            width: 56,
+            height: 56,
+            background: "linear-gradient(135deg, #8b7cf7 0%, #6c5ce7 100%)",
+            boxShadow: "0 4px 24px rgba(108, 92, 231, 0.35)",
+          }}
+          whileTap={{ scale: 0.95 }}
+        >
+          <PencilLine className="w-6 h-6 text-white" />
+        </motion.button>
       </div>
     </div>
   );

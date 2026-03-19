@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Star, Send } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useStore } from "@/stores/useStore";
 import { i18n } from "@/lib/i18n";
 import { mockPosts, mockPlaces } from "@/lib/mockData";
@@ -63,6 +64,31 @@ export function HomePage() {
   const t = i18n[lang];
   const hotPlaces = mockPlaces.slice(0, 4);
   const popularPosts = mockPosts.slice(0, 3);
+  const [weather, setWeather] = useState<{
+    temp: string;
+    feelsLike: string;
+    condition: string;
+  } | null>(null);
+  const [exchange, setExchange] = useState<{
+    cnyToKrw: number;
+    usdToKrw: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [w, e] = await Promise.all([
+          fetch("/api/weather").then((r) => r.json()),
+          fetch("/api/exchange").then((r) => r.json()),
+        ]);
+        setWeather(w);
+        setExchange(e);
+      } catch {
+        // keep fallback UI
+      }
+    };
+    load();
+  }, []);
 
   const quickActions = [
     { emoji: "🍜", key: "foodShort" as const },
@@ -111,6 +137,33 @@ export function HomePage() {
             <p className="text-white/50 text-sm mt-2">{t.home.heroSub}</p>
           </div>
         </motion.section>
+
+        <section className="mt-4 flex gap-3 overflow-x-auto pb-1 hide-scrollbar">
+          <div className="glass-dark rounded-2xl p-4 min-w-[220px] border border-white/10">
+            <p className="text-xs text-white/60 mb-2">날씨</p>
+            <p className="text-sm text-white">
+              {weather
+                ? `🌤️ ${weather.temp}°C ${weather.condition}`
+                : "정보를 불러오는 중..."}
+            </p>
+            <p className="text-xs text-white/60 mt-1">
+              {weather ? `체감 ${weather.feelsLike}°C` : ""}
+            </p>
+          </div>
+          <div className="glass-dark rounded-2xl p-4 min-w-[220px] border border-white/10">
+            <p className="text-xs text-white/60 mb-2">환율</p>
+            <p className="text-sm text-white">
+              {exchange
+                ? `💰 1위안 = ${Math.round(exchange.cnyToKrw)}원`
+                : "정보를 불러오는 중..."}
+            </p>
+            <p className="text-xs text-white/60 mt-1">
+              {exchange
+                ? `1달러 = ${Math.round(exchange.usdToKrw)}원`
+                : ""}
+            </p>
+          </div>
+        </section>
 
         {/* AI 카드: 보라 반투명 배경 + 테두리 + sparkle + 제목 + 서브 + send + shimmer */}
         <motion.section

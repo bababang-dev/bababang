@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Crown,
@@ -14,6 +15,7 @@ import {
   Languages,
   Settings,
   ChevronRight,
+  Shield,
 } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import { mockUser } from "@/lib/mockData";
@@ -26,11 +28,24 @@ const menuIcons = {
   profile: User,
   language: Languages,
   settings: Settings,
+  admin: Shield,
 };
 
 export function MyPage() {
-  const { lang, setUser, setMembershipOpen } = useStore();
+  const {
+    lang,
+    setUser,
+    setMembershipOpen,
+    adminMode,
+    activateAdmin,
+    incrementAdminTap,
+    resetAdminTap,
+    adminTapCount,
+    setActiveTab,
+  } = useStore();
   const user = useStore((s) => s.user);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [password, setPassword] = useState("");
   useEffect(() => {
     if (!user) setUser(mockUser);
   }, [user, setUser]);
@@ -53,6 +68,9 @@ export function MyPage() {
     { key: "language" as const, label: t.menuLanguage },
     { key: "settings" as const, label: t.menuSettings },
   ];
+  const adminMenu = adminMode
+    ? [{ key: "admin" as const, label: "🔒 관리자", onClick: () => setActiveTab("admin") }]
+    : [];
 
   return (
     <div className="min-h-full bg-[#0a0a0f] text-white pb-24 scrollbar-thin">
@@ -69,6 +87,13 @@ export function MyPage() {
               className="w-16 h-16 rounded-full flex items-center justify-center font-outfit text-2xl font-bold text-white"
               style={{
                 background: "linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%)",
+              }}
+              onClick={() => {
+                incrementAdminTap();
+                if (adminTapCount + 1 >= 5) {
+                  resetAdminTap();
+                  setPasswordOpen(true);
+                }
               }}
             >
               {u.name.slice(0, 1)}
@@ -122,7 +147,7 @@ export function MyPage() {
           transition={{ delay: 0.1 }}
           className="mt-6 space-y-1"
         >
-          {menuItems.map(({ key, label, onClick }) => {
+          {[...menuItems, ...adminMenu].map(({ key, label, onClick }) => {
             const Icon = menuIcons[key];
             return (
               <motion.button
@@ -132,7 +157,7 @@ export function MyPage() {
                 className="w-full glass-dark p-4 flex items-center gap-3 text-left active:scale-[0.98] transition-transform rounded-2xl"
                 whileTap={{ scale: 0.98 }}
               >
-                <Icon className="w-5 h-5 text-white/70" />
+                {Icon ? <Icon className="w-5 h-5 text-white/70" /> : <span className="w-5 h-5" />}
                 <span className="flex-1">{label}</span>
                 {key === "tokens" && (
                   <span className="text-accent font-medium">{u.tokens}</span>
@@ -143,6 +168,46 @@ export function MyPage() {
           })}
         </motion.section>
       </div>
+
+      {passwordOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center px-6">
+          <div className="w-full max-w-[360px] rounded-2xl bg-[#171725] p-4 border border-white/10">
+            <p className="text-sm text-white/80 mb-2">관리자 비밀번호</p>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm outline-none"
+              placeholder="비밀번호 입력"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg bg-white/10 text-sm"
+                onClick={() => {
+                  setPassword("");
+                  setPasswordOpen(false);
+                }}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg bg-accent text-sm"
+                onClick={() => {
+                  if (password === "bababang2026") {
+                    activateAdmin();
+                  }
+                  setPassword("");
+                  setPasswordOpen(false);
+                }}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

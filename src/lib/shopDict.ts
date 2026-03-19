@@ -9,6 +9,9 @@ export interface ShopEntry {
   description?: string; // 간단 설명
   address?: string; // 주소 (알면)
   tel?: string; // 전화 (알면)
+  recommendMenu?: string;
+  priceRange?: string;
+  tip?: string;
 }
 
 export const shopDict: ShopEntry[] = [
@@ -19,6 +22,9 @@ export const shopDict: ShopEntry[] = [
     category: "맛집",
     district: "台东",
     description: "타이동 유명 고기집",
+    recommendMenu: "삼겹살, 목살",
+    priceRange: "1인당 80-120위안",
+    tip: "저녁 피크 시간 전에 가면 웨이팅이 적어요.",
   },
   {
     zh: "鲁鱼",
@@ -26,6 +32,8 @@ export const shopDict: ShopEntry[] = [
     category: "맛집",
     district: "万象城",
     description: "생선찜 전문점, 믹스몰 5층",
+    recommendMenu: "생선찜, 볶음요리",
+    priceRange: "1인당 70-110위안",
   },
   {
     zh: "美达尔烧烤",
@@ -33,6 +41,8 @@ export const shopDict: ShopEntry[] = [
     category: "맛집",
     district: "中山路",
     description: "중산로 유명 양꼬치",
+    recommendMenu: "양꼬치, 구운가지",
+    priceRange: "1인당 60-100위안",
   },
   {
     zh: "大红门济南烧烤",
@@ -54,6 +64,9 @@ export const shopDict: ShopEntry[] = [
     category: "맛집",
     district: "多处",
     description: "유명 훠궈 체인",
+    recommendMenu: "토마토탕, 버섯탕",
+    priceRange: "1인당 100-180위안",
+    tip: "앱 예약하면 대기 시간을 줄일 수 있어요.",
   },
   {
     zh: "外婆家",
@@ -68,6 +81,8 @@ export const shopDict: ShopEntry[] = [
     category: "맛집",
     district: "万象城",
     description: "딤섬 전문점",
+    recommendMenu: "새우딤섬, 쇼마이",
+    priceRange: "1인당 80-130위안",
   },
   {
     zh: "四方大酒店",
@@ -82,6 +97,8 @@ export const shopDict: ShopEntry[] = [
     category: "맛집",
     district: "多处",
     description: "칭다오 대표 생선 만두",
+    recommendMenu: "생선만두, 해산물요리",
+    priceRange: "1인당 50-90위안",
   },
   {
     zh: "上逸阁",
@@ -89,6 +106,8 @@ export const shopDict: ShopEntry[] = [
     category: "맛집",
     district: "市南区",
     description: "북경오리 전문점",
+    recommendMenu: "북경오리, 볶음요리",
+    priceRange: "1인당 120-200위안",
   },
   {
     zh: "85度C",
@@ -96,6 +115,8 @@ export const shopDict: ShopEntry[] = [
     category: "카페",
     district: "多处",
     description: "대만 프랜차이즈 카페/베이커리",
+    recommendMenu: "커피, 빵",
+    priceRange: "1인당 20-40위안",
   },
   {
     zh: "茶百道",
@@ -103,6 +124,8 @@ export const shopDict: ShopEntry[] = [
     category: "카페",
     district: "多处",
     description: "밀크티 프랜차이즈",
+    recommendMenu: "과일차, 밀크티",
+    priceRange: "1인당 15-30위안",
   },
   {
     zh: "蜜雪冰城",

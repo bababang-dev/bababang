@@ -1,5 +1,11 @@
 // 탭 키: 하단 네비게이션
-export type TabKey = "home" | "community" | "recommend" | "bookmark" | "my";
+export type TabKey =
+  | "home"
+  | "community"
+  | "recommend"
+  | "bookmark"
+  | "my"
+  | "admin";
 
 // 언어
 export type Lang = "ko" | "zh";
@@ -65,4 +71,14 @@ export interface ChatMessage {
   role: "ai" | "user";
   text: string;
   sources?: Array<{ title: string; link: string }>;
+  recommendedShops?: Array<{
+    zh: string;
+    koreanName: string;
+    category: string;
+    district: string;
+    description: string;
+    recommendMenu: string;
+    priceRange: string;
+    tip: string;
+  }>;
 }

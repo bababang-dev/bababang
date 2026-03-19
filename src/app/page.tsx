@@ -12,9 +12,11 @@ import { CommunityPage } from "@/components/pages/CommunityPage";
 import { RecommendPage } from "@/components/pages/RecommendPage";
 import { BookmarkPage } from "@/components/pages/BookmarkPage";
 import { MyPage } from "@/components/pages/MyPage";
+import { AdminPage } from "@/components/pages/AdminPage";
 import { PostDetail } from "@/components/modals/PostDetail";
 import { PlaceDetail } from "@/components/modals/PlaceDetail";
 import { MembershipModal } from "@/components/modals/MembershipModal";
+import { WritePostModal } from "@/components/modals/WritePostModal";
 import type { TabKey } from "@/types";
 
 const pages: Record<TabKey, React.ReactNode> = {
@@ -23,6 +25,7 @@ const pages: Record<TabKey, React.ReactNode> = {
   recommend: <RecommendPage />,
   bookmark: <BookmarkPage />,
   my: <MyPage />,
+  admin: <AdminPage />,
 };
 
 export default function MainPage() {
@@ -31,10 +34,20 @@ export default function MainPage() {
   const membershipOpen = useStore((s) => s.membershipOpen);
   const setUser = useStore((s) => s.setUser);
   const user = useStore((s) => s.user);
+  const setLang = useStore((s) => s.setLang);
 
   useEffect(() => {
     if (!user) setUser(mockUser);
   }, [user, setUser]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("bababang-lang");
+    if (saved === "ko" || saved === "zh") {
+      setLang(saved);
+      return;
+    }
+    setLang(window.navigator.language.toLowerCase().startsWith("zh") ? "zh" : "ko");
+  }, [setLang]);
 
   useEffect(() => {
     const scrollEl = document.querySelector(".page-scroll");
@@ -76,6 +89,7 @@ export default function MainPage() {
       <AnimatePresence>
         {membershipOpen && <MembershipModal key="membership" />}
       </AnimatePresence>
+      <WritePostModal />
     </div>
   );
 }
