@@ -13,6 +13,7 @@ export function MapActionSheet() {
   const destLng = mapActionSheet?.destLng ?? "";
   const destName = mapActionSheet?.destName ?? "";
   const destAddress = mapActionSheet?.destAddress ?? "";
+  const koreanName = mapActionSheet?.koreanName ?? "";
 
   const options =
     destLat && destLng ? showMapOptions(destLat, destLng, destName) : [];
@@ -53,8 +54,17 @@ export function MapActionSheet() {
           >
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
             <div className="mb-4 px-1">
-              <p className="text-base font-semibold text-white">{destName}</p>
-              <p className="mt-1 text-sm text-white/60">{destAddress}</p>
+              {koreanName ? (
+                <>
+                  <p className="text-lg font-semibold text-white">{koreanName}</p>
+                  <p className="mt-0.5 text-sm text-white/50">{destName}</p>
+                </>
+              ) : (
+                <p className="text-lg font-semibold text-white">{destName}</p>
+              )}
+              {destAddress ? (
+                <p className="mt-2 text-sm text-white/60">{destAddress}</p>
+              ) : null}
             </div>
             <div className="flex flex-col gap-2 pb-2">
               {options.map((opt) => (

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
-import { findShop } from "@/lib/shopDict";
+import { shopDict, findAllShops } from "@/lib/shopDict";
 import { findCategories } from "@/lib/categoryDict";
 
 type ChatDbPostRow = RowDataPacket & {
@@ -20,6 +20,8 @@ type ChatDbPromoRow = RowDataPacket & {
   template_data?: unknown;
   tags?: string | null;
 };
+
+type NaverItem = { title: string; desc: string; source: string; link: string };
 
 function stripHtml(str: string): string {
   return (str ?? "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/\n{3,}/g, "\n\n").trim();
@@ -101,7 +103,22 @@ async function crawlChinazoa(query: string): Promise<string[]> {
 }
 
 // ═══ 高德地图 검색 ═══
-async function amapSearch(keywords: string, city: string = "青岛"): Promise<Array<{ name: string; address: string; tel: string; rating: string; cost: string; type: string; location: string }>> {
+async function amapSearch(
+  keywords: string,
+  city: string = "青岛"
+): Promise<
+  Array<{
+    name: string;
+    address: string;
+    tel: string;
+    rating: string;
+    cost: string;
+    openTime: string;
+    photos: string[];
+    type: string;
+    location: string;
+  }>
+> {
   try {
     const key = process.env.AMAP_API_KEY;
     if (!key) return [];
@@ -112,27 +129,81 @@ async function amapSearch(keywords: string, city: string = "青岛"): Promise<Ar
         name?: string;
         address?: string;
         tel?: string;
+        rating?: string;
         location?: string;
-        biz_ext?: { rating?: string; cost?: string };
+        photos?: Array<{ url?: string } | string>;
+        biz_ext?: { rating?: string; cost?: string; open_time?: string; meal_ordering?: string };
         type?: string;
       }>;
     };
     console.log("=== 高德 [" + keywords + "]: " + (data.pois?.length || 0) + "개 ===");
-    return (data.pois || []).map((poi) => ({
-      name: poi.name ?? "",
-      address: poi.address ?? "",
-      tel: poi.tel ?? "",
-      rating: poi.biz_ext?.rating ?? "",
-      cost: poi.biz_ext?.cost ?? "",
-      type: poi.type ?? "",
-      location: poi.location ?? "",
-    }));
+    return (data.pois || []).map((poi) => {
+      const photos =
+        poi.photos?.slice(0, 3).map((p) => (typeof p === "string" ? p : p?.url ?? "")).filter(Boolean) ?? [];
+      return {
+        name: poi.name ?? "",
+        address: poi.address ?? "",
+        tel: poi.tel ?? "",
+        rating: poi.biz_ext?.rating || poi.rating || "",
+        cost: poi.biz_ext?.cost || "",
+        openTime: poi.biz_ext?.open_time || "",
+        photos,
+        type: poi.type ?? "",
+        location: poi.location ?? "",
+      };
+    });
   } catch {
     return [];
   }
 }
 
-// ═══ 네이버 검색 ═══
+// ═══ SerpAPI 百度 검색 (大众点评 + 小红书 리뷰) ═══
+async function searchBaidu(query: string): Promise<string[]> {
+  const apiKey = process.env.SERPAPI_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const searchQuery = query + " 大众点评 OR 小红书 评价 推荐";
+    const url = `https://serpapi.com/search.json?engine=baidu&q=${encodeURIComponent(searchQuery)}&api_key=${apiKey}`;
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return [];
+
+    const data = (await res.json()) as {
+      organic_results?: Array<{ title?: string; snippet?: string; link?: string }>;
+    };
+    const results: string[] = [];
+
+    if (data.organic_results) {
+      for (const item of data.organic_results.slice(0, 8)) {
+        const title = item.title || "";
+        const snippet = item.snippet || "";
+        const source = item.link || "";
+
+        const isDianping = source.includes("dianping") || title.includes("点评");
+        const isXiaohongshu =
+          source.includes("xiaohongshu") || source.includes("xhslink") || title.includes("小红书");
+
+        let tag = "";
+        if (isDianping) tag = "[大众点评]";
+        else if (isXiaohongshu) tag = "[小红书]";
+        else tag = "[百度]";
+
+        if (title || snippet) {
+          results.push(`${tag} ${title}: ${snippet.slice(0, 150)}`);
+        }
+      }
+    }
+
+    console.log("=== SerpAPI 百度 결과: " + results.length + "개 ===");
+    return results;
+  } catch (e) {
+    console.log("=== SerpAPI 실패 ===", e);
+    return [];
+  }
+}
+
+// ═══ 네이버 Open API (SerpAPI 실패 시 폴백) ═══
 async function naverSearch(
   type: string,
   query: string,
@@ -156,6 +227,129 @@ async function naverSearch(
   }
 }
 
+// ═══ SerpAPI 네이버 검색 ═══
+async function searchNaver(
+  query: string
+): Promise<Array<{ title: string; desc: string; source: string; link: string }>> {
+  const apiKey = process.env.SERPAPI_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const url = `https://serpapi.com/search.json?engine=naver&query=${encodeURIComponent(query + " 칭다오")}&api_key=${apiKey}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return [];
+
+    const data = (await res.json()) as {
+      blog_results?: Array<{ title?: string; snippet?: string; description?: string; link?: string }>;
+      cafe_results?: Array<{ title?: string; snippet?: string; description?: string; link?: string }>;
+      organic_results?: Array<{ title?: string; snippet?: string; link?: string }>;
+    };
+
+    const results: Array<{ title: string; desc: string; source: string; link: string }> = [];
+
+    if (data.blog_results) {
+      for (const item of data.blog_results.slice(0, 10)) {
+        results.push({
+          title: item.title || "",
+          desc: item.snippet || item.description || "",
+          source: "블로그",
+          link: item.link || "",
+        });
+      }
+    }
+
+    if (data.cafe_results) {
+      for (const item of data.cafe_results.slice(0, 5)) {
+        results.push({
+          title: item.title || "",
+          desc: item.snippet || item.description || "",
+          source: "카페",
+          link: item.link || "",
+        });
+      }
+    }
+
+    if (data.organic_results) {
+      for (const item of data.organic_results.slice(0, 5)) {
+        results.push({
+          title: item.title || "",
+          desc: item.snippet || "",
+          source: "네이버",
+          link: item.link || "",
+        });
+      }
+    }
+
+    console.log("=== SerpAPI 네이버 결과: " + results.length + "개 ===");
+    return results;
+  } catch (e) {
+    console.log("=== SerpAPI 네이버 실패, 기존 방식 시도 ===", e);
+    return [];
+  }
+}
+
+async function searchGoogleNews(query: string): Promise<string[]> {
+  const apiKey = process.env.SERPAPI_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const url = `https://serpapi.com/search.json?engine=google_news&q=${encodeURIComponent(query + " 青岛")}&gl=cn&hl=zh-cn&api_key=${apiKey}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return [];
+
+    const data = (await res.json()) as {
+      news_results?: Array<{ title?: string; snippet?: string }>;
+    };
+
+    const results: string[] = [];
+    if (data.news_results) {
+      for (const item of data.news_results.slice(0, 5)) {
+        results.push(`[뉴스] ${item.title}: ${(item.snippet || "").slice(0, 100)}`);
+      }
+    }
+
+    console.log("=== Google 뉴스 결과: " + results.length + "개 ===");
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchNaverItemsSerpOrFallback(
+  searchQuery: string,
+  sortType: string,
+  startPos: number
+): Promise<NaverItem[]> {
+  const serpItems = await searchNaver(searchQuery);
+  if (serpItems.length > 0) {
+    const mapped = serpItems.map((i) => ({
+      title: stripHtml(i.title),
+      desc: stripHtml(i.desc),
+      source: i.source,
+      link: i.link,
+    }));
+    return mapped.filter((item, idx, arr) => arr.findIndex((a) => a.link === item.link) === idx);
+  }
+
+  console.log("=== SerpAPI 네이버 빈 결과 → 네이버 Open API 폴백 ===");
+  const naverResults = await Promise.all([
+    naverSearch("blog", searchQuery, 15, startPos, sortType),
+    naverSearch("blog", searchQuery, 15, 11, sortType === "sim" ? "date" : "sim"),
+    naverSearch("cafearticle", searchQuery + " 중정공", 10, 1, "sim"),
+    naverSearch("cafearticle", searchQuery, 5, 1, "sim"),
+    naverSearch("kin", searchQuery, 5, 1, "sim"),
+  ]);
+  const [blog1, blog2, cafeZh, cafe1, kin1] = naverResults;
+  const merged = [
+    ...(blog1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
+    ...(blog2 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
+    ...(cafeZh || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
+    ...(cafe1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
+    ...(kin1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "지식인", link: i.link ?? "" })),
+  ];
+  return merged.filter((item, idx, arr) => arr.findIndex((a) => a.link === item.link) === idx);
+}
+
 // ═══ 블로그 원문 크롤링 ═══
 async function fetchBlogContent(url: string): Promise<string> {
   try {
@@ -172,28 +366,50 @@ async function fetchBlogContent(url: string): Promise<string> {
   }
 }
 
-type NaverItem = { title: string; desc: string; source: string; link: string };
 type AmapPoi = {
   name: string;
   address: string;
   tel: string;
   rating: string;
   cost: string;
+  openTime: string;
+  photos: string[];
   type: string;
   location: string;
+  _score?: number;
 };
 
-function poiToRecommendedPayload(poi: AmapPoi) {
-  const parts = poi.location ? poi.location.split(",").map((s) => s.trim()) : [];
-  return {
-    name: poi.name,
-    address: poi.address,
-    tel: poi.tel,
-    rating: poi.rating,
-    cost: poi.cost,
-    lat: parts[1] ?? "",
-    lng: parts[0] ?? "",
-  };
+function zhNameBase(zh: string): string {
+  return zh.split("(")[0].split("（")[0].trim();
+}
+
+function calculateShopScore(
+  poi: AmapPoi,
+  naverMentions: Map<string, number>,
+  shopDictMatch: boolean
+): number {
+  let score = 0;
+
+  const rating = parseFloat(poi.rating) || 0;
+  if (rating >= 4.5) score += 50;
+  else if (rating >= 4.0) score += 40;
+  else if (rating >= 3.5) score += 25;
+  else if (rating >= 3.0) score += 10;
+  else if (rating > 0) score += 5;
+
+  const name = poi.name?.split("(")[0]?.split("（")[0]?.trim() || "";
+  const mentions = naverMentions.get(name) || 0;
+  score += Math.min(mentions * 5, 30);
+
+  if (shopDictMatch) score += 15;
+
+  if (poi.tel) score += 1;
+  if (poi.address) score += 1;
+  if (poi.cost) score += 1;
+  if (poi.openTime) score += 1;
+  if (poi.rating) score += 1;
+
+  return score;
 }
 
 function analyzeCollectedData(
@@ -245,7 +461,9 @@ function analyzeCollectedData(
   if (amapPois.length > 0) {
     report += "[高德地图 공식 정보 - 주소/전화/평점 정확]\n";
     amapPois.slice(0, 10).forEach((poi, i) => {
-      report += `[P${i + 1}] ${poi.name} | 주소: ${poi.address} | 평점: ${poi.rating || "없음"}/5 | 전화: ${poi.tel || "없음"} | 1인당: ${poi.cost ? poi.cost + "위안" : "없음"}\n`;
+      const sc = poi._score ?? 0;
+      const costText = poi.cost ? `${poi.cost}위안` : "없음";
+      report += `[P${i + 1}] ${poi.name} ⭐${poi.rating || "없음"} (추천점수: ${sc}점) | 주소: ${poi.address} | 전화: ${poi.tel || "없음"} | 인당: ${costText} | 영업시간: ${poi.openTime || "없음"}\n`;
     });
     report += "\n";
   }
@@ -380,48 +598,131 @@ export async function POST(request: Request) {
         const sortType = Math.random() > 0.5 ? "sim" : "date";
         const startPos = Math.floor(Math.random() * 5) + 1;
 
-        const detectedShop = findShop(userMessage);
-        if (detectedShop) {
-          console.log("=== 가게 감지: " + detectedShop.koreanNames[0] + " → " + detectedShop.zh + " ===");
-        }
+        let searchQueryZh = userMessage;
 
-        const amapKeywordsFromDict = findCategories(userMessage);
-
-        let amapKeywords: string[];
-        if (detectedShop) {
-          amapKeywords = [detectedShop.zh];
-        } else if (amapKeywordsFromDict.length > 0) {
-          amapKeywords = amapKeywordsFromDict;
+        const matchedShops = findAllShops(userMessage);
+        if (matchedShops.length > 0 && matchedShops[0].zh) {
+          searchQueryZh = matchedShops[0].zh;
+          console.log("=== shopDict 매칭: " + searchQueryZh + " ===");
         } else {
-          amapKeywords = ["美食"];
+          const hasKorean = /[가-힣]/.test(userMessage);
+          if (hasKorean) {
+            try {
+              const transRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+                signal: AbortSignal.timeout(5000),
+                body: JSON.stringify({
+                  model: "deepseek-chat",
+                  temperature: 0,
+                  max_tokens: 100,
+                  messages: [
+                    {
+                      role: "user",
+                      content:
+                        "아래 한국어를 중국어로 번역해. 번역만 출력해. 다른 말 하지마. 장소명, 기관명, 카테고리 등을 정확히 번역해.\n\n" +
+                        userMessage,
+                    },
+                  ],
+                }),
+              });
+              const transData = (await transRes.json()) as {
+                choices?: Array<{ message?: { content?: string } }>;
+              };
+              const translated = transData.choices?.[0]?.message?.content?.trim();
+              if (translated && translated.length > 0) {
+                searchQueryZh = translated;
+                console.log("=== 번역: " + userMessage + " → " + searchQueryZh + " ===");
+              }
+            } catch {
+              console.log("=== 번역 실패, 원문 사용 ===");
+            }
+          }
         }
 
-        const [chinazoaData, bababangDbLines, ...amapAndNaverResults] = await Promise.all([
+        console.log("=== 검색 키워드: 高德/百度=" + searchQueryZh + ", 네이버=" + userMessage + " ===");
+
+        const amapKeywordsFromDict = findCategories(searchQueryZh);
+
+        const amapKeywords: string[] =
+          amapKeywordsFromDict.length > 0 ? amapKeywordsFromDict : ["美食"];
+
+        const baiduQuery = searchQueryZh;
+
+        const newsKeywords = [
+          "뉴스",
+          "소식",
+          "최근",
+          "요즘",
+          "코로나",
+          "정책",
+          "비자",
+          "규정",
+          "법",
+          "사건",
+          "날씨",
+          "환율",
+          "부동산시장",
+        ];
+        const needsNews = newsKeywords.some((k) => userMessage.includes(k));
+
+        const amapCount = amapKeywords.length;
+        const [chinazoaData, bababangDbLines, ...categoryAmapBaiduNews] = await Promise.all([
           crawlChinazoa(userMessage),
           fetchBababangDbContext(userMessage),
           ...amapKeywords.map((kw) => amapSearch(kw)),
-          naverSearch("blog", searchQuery, 15, startPos, sortType),
-          naverSearch("blog", searchQuery, 15, 11, sortType === "sim" ? "date" : "sim"),
-          naverSearch("cafearticle", searchQuery + " 중정공", 10, 1, "sim"),
-          naverSearch("cafearticle", searchQuery, 5, 1, "sim"),
-          naverSearch("kin", searchQuery, 5, 1, "sim"),
+          searchBaidu(baiduQuery),
+          needsNews ? searchGoogleNews(userMessage) : Promise.resolve([] as string[]),
         ]);
 
-        const amapCount = amapKeywords.length;
-        const allAmapPois = (amapAndNaverResults.slice(0, amapCount) as Array<Array<AmapPoi>>).flat();
+        const categoryAmapResults = categoryAmapBaiduNews.slice(0, amapCount) as Array<Array<AmapPoi>>;
+        const baiduResults = (categoryAmapBaiduNews[amapCount] as string[]) || [];
+        const newsResults = (categoryAmapBaiduNews[amapCount + 1] as string[]) || [];
+        let shopAmapResults: AmapPoi[] = [];
+        if (matchedShops.length > 0) {
+          const shopSearchPromises = matchedShops.slice(0, 5).map((shop) => {
+            if (!shop.zh) return Promise.resolve([] as AmapPoi[]);
+            const searchName = shop.zh.replace(/[\(\)（）]/g, " ").trim();
+            return amapSearch(searchName, "青岛").catch(() => [] as AmapPoi[]);
+          });
+          const results = await Promise.all(shopSearchPromises);
+          shopAmapResults = results.flat();
+          console.log("=== shopDict → 高德 추가 검색: " + shopAmapResults.length + "개 ===");
+        }
+
+        const allAmapPois = (categoryAmapResults as Array<Array<AmapPoi>>).flat();
         const uniquePois = allAmapPois.filter(
           (poi, idx, arr) => arr.findIndex((p) => p.name === poi.name) === idx
         );
 
-        const naverResults = amapAndNaverResults.slice(amapCount) as Array<Array<{ title?: string; description?: string; link?: string }>>;
-        const [blog1, blog2, cafeZh, cafe1, kin1] = naverResults;
-        const allNaverItems = [
-          ...(blog1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
-          ...(blog2 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
-          ...(cafeZh || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
-          ...(cafe1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
-          ...(kin1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "지식인", link: i.link ?? "" })),
-        ].filter((item, idx, arr) => arr.findIndex((a) => a.link === item.link) === idx);
+        const allNaverItems = await fetchNaverItemsSerpOrFallback(searchQuery, sortType, startPos);
+
+        const naverMentionCount = new Map<string, number>();
+        if (allNaverItems.length > 0) {
+          for (const item of allNaverItems) {
+            const text = (item.title || "") + " " + (item.desc || "");
+            for (const poi of uniquePois) {
+              const name = poi.name?.split("(")[0]?.split("（")[0]?.trim() || "";
+              if (name.length >= 2 && text.includes(name)) {
+                naverMentionCount.set(name, (naverMentionCount.get(name) || 0) + 1);
+              }
+            }
+          }
+        }
+
+        const shopDictNames = new Set(
+          shopDict
+            .map((s) => s.zh?.split("(")[0]?.split("（")[0]?.trim())
+            .filter((x): x is string => Boolean(x))
+        );
+
+        for (const poi of uniquePois) {
+          const nameBase = poi.name?.split("(")[0]?.split("（")[0]?.trim() || "";
+          const isInDict = shopDictNames.has(nameBase);
+          poi._score = calculateShopScore(poi, naverMentionCount, isInDict);
+        }
+
+        uniquePois.sort((a, b) => (b._score ?? 0) - (a._score ?? 0));
 
         const topBlogs = allNaverItems.filter((i) => i.source === "블로그").slice(0, 3);
         const blogContents = await Promise.all(
@@ -432,13 +733,44 @@ export async function POST(request: Request) {
         );
 
         const totalSources =
-          chinazoaData.length + uniquePois.length + allNaverItems.length + bababangDbLines.length;
+          chinazoaData.length +
+          uniquePois.length +
+          allNaverItems.length +
+          bababangDbLines.length +
+          baiduResults.length +
+          newsResults.length;
         console.log(
-          `=== 총 수집: 차이나조아 ${chinazoaData.length} + 高德 ${uniquePois.length} + 네이버 ${allNaverItems.length} + BabaBangDB ${bababangDbLines.length} = ${totalSources}개 ===`
+          `=== 총 수집: 차이나조아 ${chinazoaData.length} + 高德 ${uniquePois.length} + 네이버 ${allNaverItems.length} + 百度 ${baiduResults.length} + 뉴스 ${newsResults.length} + BabaBangDB ${bababangDbLines.length} = ${totalSources}개 ===`
         );
 
         const analysisReport = analyzeCollectedData(uniquePois, allNaverItems, chinazoaData, blogContents);
         let searchContext = analysisReport.slice(0, 2000);
+
+        const shopListText = shopDict
+          .map((s) => (s.zh ? `${s.zh} = ${s.koreanNames.join(",")}` : s.koreanNames.join(",")))
+          .join("\n");
+
+        searchContext +=
+          "\n\n=== BabaBang 등록 업체 목록 (355개, 중국어이름=한국어이름) ===\n" + shopListText;
+
+        if (shopAmapResults.length > 0) {
+          searchContext += "\n\n=== shopDict 매칭 업체의 高德 상세 정보 ===\n";
+          shopAmapResults.forEach((poi, i) => {
+            const ratingStar = poi.rating ? `⭐${poi.rating}` : "⭐-";
+            const costText = poi.cost ? `${poi.cost}위안` : "없음";
+            searchContext += `${i + 1}. ${poi.name} ${ratingStar} | 주소: ${poi.address || "없음"} | 전화: ${poi.tel || "없음"} | 인당: ${costText} | 영업시간: ${poi.openTime || "없음"}\n`;
+          });
+        }
+
+        if (needsNews && newsResults.length > 0) {
+          searchContext += "\n\n=== 최신 뉴스 ===\n" + newsResults.join("\n");
+        }
+
+        if (baiduResults.length > 0) {
+          searchContext += "\n\n=== 百度搜索 (大众点评/小红书 리뷰 포함) ===\n";
+          searchContext += baiduResults.join("\n");
+        }
+
         if (bababangDbLines.length > 0) {
           searchContext += "\n\n=== BabaBang 유저 등록 정보 (가장 신뢰도 높음) ===\n";
           searchContext += bababangDbLines.join("\n");
@@ -446,17 +778,6 @@ export async function POST(request: Request) {
         console.log("=== 분석 보고서 길이: " + searchContext.length + "자 ===");
 
         const locationContext = "";
-        const shopContext = detectedShop
-          ? "\n유저가 찾는 가게: " +
-            detectedShop.koreanNames[0] +
-            " = " +
-            detectedShop.zh +
-            " (" +
-            (detectedShop.description ?? "") +
-            ", " +
-            detectedShop.district +
-            " 지역)\n"
-          : "";
 
         send({ type: "status", content: `${totalSources}개 소스에서 분석 완료! 답변 생성중...` });
 
@@ -513,35 +834,59 @@ export async function POST(request: Request) {
 - 모르면 "이건 현지에서 한번 확인해보세요~" 정도로
 - 마지막에 출처나 분석 결과 언급하지 마
 - 마지막은 "궁금한 거 더 있으면 편하게 물어보세요~" 같은 가벼운 마무리
-- 맛집이나 장소를 추천할 때는 '길찾기나 택시가 필요하면 말씀해주세요~' 같은 안내를 자연스럽게 한 문장 넣어줘${userInterestsLine}`;
+- 맛집이나 장소를 추천할 때는 '길찾기나 택시가 필요하면 말씀해주세요~' 같은 안내를 자연스럽게 한 문장 넣어줘
+- 맛집이나 장소를 추천할 때 평점이 높은 곳을 우선 추천해. 평점, 인당 가격, 영업시간을 꼭 포함해서 알려줘. 高德地图 데이터에 평점이 있으면 반드시 언급해. 예: '⭐ 4.7/5 · 인당 80위안 · 11:00~22:00'
+- [BabaBang 등록 업체 목록]에 있는 업체들은 실제 칭다오에서 운영중인 검증된 업체야. 유저 질문에 관련된 업체가 있으면 우선 추천해. 한국어 이름과 중국어 이름 둘 다 알려줘. 유저가 카테고리로 질문해도 (예: 한국슈퍼, 치킨집, 병원) 너가 목록을 보고 관련 업체를 찾아서 알려줘.
+- [百度搜索]에 大众点评이나 小红书 리뷰가 있으면 참고해서 실제 이용자 후기를 자연스럽게 답변에 포함해줘.
 
-        const recommendFooter =
-          searchContext && uniquePois.length > 0
-            ? `
+애매한 질문 처리 (매우 중요):
+- 유저 질문이 애매하거나 너무 넓으면 바로 답하지 말고 먼저 구체적으로 물어봐.
+- 예시 상황:
+  - '맛집 추천해줘' → 어떤 종류인지 물어보기
+  - '병원 알려줘' → 어떤 과인지 물어보기
+  - '집 구하려면' → 예산? 형태(아파트/원룸)? 물어보기
+  - '비자 연장' → 어떤 비자? 현재 상태? 물어보기
+- 질문할 때 규칙:
+  1. 선택지를 주면서 물어봐 (유저가 고르기 쉽게)
+  2. 선택지는 이모지 + 텍스트로 보기 좋게 (각 선택지는 한 줄에 하나, 줄 맨 앞이 이모지로 시작하게)
+  3. 질문은 1개만 (종류만 물어봐. 지역은 묻지 마)
+  4. 지역은 절대 묻지 마. 유저 위치 기반으로 가까운 곳을 자동 추천해
+  5. '현재 위치에서 가장 가까운 곳으로 추천해드릴게요!' 같은 안내를 자연스럽게 넣어
+  6. 이미 구체적인 질문이면 바로 답해 (예: '청양 양꼬치 맛집' → 바로 추천)
+- 예시 응답:
+  '어떤 맛집을 찾으세요? 가까운 곳으로 추천해드릴게요!
 
-답변 맨 마지막 줄에 반드시 이 형식으로 추천 장소 번호를 적어줘: [RECOMMEND:P1,P3,P5]
-이 줄은 유저에게 안 보이니까 걱정 마. 반드시 포함해줘.`
-            : "";
+🍖 한국식 고기/구이
+🍜 중식 로컬 맛집
+🍛 분식/국밥/탕
+☕ 카페/디저트
+🍺 술집/바'
+- 위와 같이 선택지를 줄 때만 줄마다 이모지를 써도 돼. 일반 답변에서는 기존처럼 이모지는 카테고리 제목 등에만 써.
+- 추천점수가 높은 가게를 우선 추천해. 추천점수는 高德 평점 + 한국인 블로그 언급 횟수 + BabaBang 등록 여부를 종합한 점수야. 점수가 높을수록 검증된 곳이야. 추천점수 30점 이하인 곳은 추천하지 마.${userInterestsLine}`;
 
         const userContent = searchContext
           ? `질문: ${userMessage}
-${locationContext}${shopContext}
+${locationContext}
 
-아래는 BabaBang 앱에 유저가 올린 커뮤니티 글·업체 홍보(DB), 高德地图, 한국인 블로그/카페/지식인, 한인 커뮤니티에서 총 ${totalSources}개 소스를 수집하고 분석한 결과야.
+아래는 BabaBang 앱에 유저가 올린 커뮤니티 글·업체 홍보(DB), 高德地图, 百度搜索(大众点评/小红书), 한국인 블로그/카페/지식인, 한인 커뮤니티${needsNews && newsResults.length > 0 ? ", 최신 뉴스" : ""}에서 총 ${totalSources}개 소스를 수집하고 분석한 결과야.
 빈도가 높은 것 = 많은 사람이 추천한 검증된 정보야.
 
 답변 규칙:
 1. [BabaBang 유저 등록 정보] 섹션이 있으면 이 정보를 최우선으로 활용해. 실제 유저가 직접 등록한 업체·게시글이라서 가장 정확해.
-2. [자주 언급된 키워드]에서 빈도 높은 것을 우선 추천
-3. [高德地图 공식 정보]의 주소, 전화, 평점을 사용
-4. [상세 후기]에서 구체적인 메뉴, 가격, 팁을 가져와
-5. 여러 소스에서 공통으로 나오는 정보를 강조
-6. 수집된 정보에 없는 가게명, 주소, 가격을 지어내지 마
-7. 출처 관련 단어 언급하지 마 (블로그, 카페, 네이버, 高德 등)
-8. 마크다운 문법 절대 쓰지마
-9. 줄바꿈 많이 넣어서 읽기 쉽게
+2. [BabaBang 등록 업체 목록]에 있는 업체들은 실제 칭다오에서 운영중인 검증된 업체야. 유저 질문에 관련된 업체가 있으면 우선 추천해. 한국어 이름과 중국어 이름 둘 다 알려줘. 유저가 카테고리로 질문해도 (예: 한국슈퍼, 치킨집, 병원) 너가 목록을 보고 관련 업체를 찾아서 알려줘.
+3. [자주 언급된 키워드]에서 빈도 높은 것을 우선 추천
+4. [高德地图 공식 정보]의 주소, 전화, 평점을 사용
+5. 맛집이나 장소를 추천할 때 평점이 높은 곳을 우선 추천해. 평점, 인당 가격, 영업시간을 꼭 포함해서 알려줘. 高德地图 데이터에 평점이 있으면 반드시 언급해. 예: '⭐ 4.7/5 · 인당 80위안 · 11:00~22:00'
+6. [상세 후기]에서 구체적인 메뉴, 가격, 팁을 가져와
+7. [百度搜索]에 大众点评이나 小红书 리뷰가 있으면 참고해서 실제 이용자 후기를 자연스럽게 답변에 포함해줘.
+8. 여러 소스에서 공통으로 나오는 정보를 강조
+9. 수집된 정보에 없는 가게명, 주소, 가격을 지어내지 마
+10. 출처 관련 단어 언급하지 마 (블로그, 카페, 네이버, 高德 등)
+11. 마크다운 문법 절대 쓰지마
+12. 줄바꿈 많이 넣어서 읽기 쉽게
+13. [高德地图 공식 정보]의 추천점수가 높은 가게를 우선 추천해. 추천점수는 高德 평점·한국인 블로그 언급·BabaBang 등록을 종합한 점수야. 추천점수 30점 이하인 곳은 추천하지 마.
 
-${searchContext}${recommendFooter}`
+${searchContext}`
           : userMessage;
 
         const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
@@ -624,28 +969,151 @@ ${searchContext}${recommendFooter}`
           .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
           .trim();
 
-        const indexedPois = uniquePois.slice(0, 10);
-        const recommendMatch = fullContent.match(/\[RECOMMEND:([^\]]+)\]/);
-        let recommendedIndices: number[] = [];
-        if (recommendMatch) {
-          recommendedIndices = recommendMatch[1]
-            .split(",")
-            .map((p) => parseInt(p.replace(/^P/i, "").trim(), 10))
-            .filter((n) => !isNaN(n) && n >= 1 && n <= indexedPois.length);
-        }
-        const finalPois =
-          recommendedIndices.length > 0
-            ? recommendedIndices.map((i) => indexedPois[i - 1]).filter(Boolean).slice(0, 5)
-            : indexedPois.slice(0, 5);
+        type RecommendedCard = {
+          name: string;
+          koreanName: string;
+          address: string;
+          tel: string;
+          rating: string;
+          cost: string;
+          openTime: string;
+          photos: string[];
+          lat: string;
+          lng: string;
+        };
 
-        const fullContentForUser = fullContent.replace(/\n?\[RECOMMEND:[^\]]+\]\s*/g, "").trim();
-        const recommendedShops = finalPois.map((poi) => poiToRecommendedPayload(poi));
+        const poiToRecommendedCard = (poi: AmapPoi, koreanName: string): RecommendedCard => {
+          const lat = poi.location ? poi.location.split(",")[1]?.trim() ?? "" : "";
+          const lng = poi.location ? poi.location.split(",")[0]?.trim() ?? "" : "";
+          return {
+            name: poi.name,
+            koreanName,
+            address: poi.address ?? "",
+            tel: poi.tel ?? "",
+            rating: poi.rating ?? "",
+            cost: poi.cost ?? "",
+            openTime: poi.openTime ?? "",
+            photos: poi.photos ?? [],
+            lat,
+            lng,
+          };
+        };
+
+        const koreanNameForPoi = (poi: AmapPoi): string => {
+          const shortName = zhNameBase(poi.name);
+          const dictMatch = shopDict.find((s) => {
+            const dictZh = zhNameBase(s.zh || "");
+            return dictZh === shortName || shortName.includes(dictZh) || dictZh.includes(shortName);
+          });
+          return dictMatch?.koreanNames[0] ?? "";
+        };
+
+        const scoreForRecommendedCard = (card: RecommendedCard): number => {
+          const p = uniquePois.find(
+            (poi) => poi.name === card.name || zhNameBase(poi.name) === zhNameBase(card.name)
+          );
+          return p?._score ?? 0;
+        };
+
+        const mentionedPois = uniquePois.filter((poi) => {
+          const name = poi.name || "";
+          const shortName = name.split("(")[0].split("（")[0].trim();
+
+          if (shortName.length >= 2 && fullContent.includes(shortName)) return true;
+
+          const dictMatch = shopDict.find((s) => {
+            const dictZh = (s.zh || "").split("(")[0].split("（")[0].trim();
+            return dictZh === shortName || shortName.includes(dictZh) || dictZh.includes(shortName);
+          });
+          if (dictMatch) {
+            for (const korName of dictMatch.koreanNames) {
+              if (korName.length >= 2 && fullContent.includes(korName)) return true;
+            }
+          }
+
+          return false;
+        });
+
+        const mentionedDictShops = shopDict.filter((shop) =>
+          shop.koreanNames.some((name) => name.length >= 2 && fullContent.includes(name))
+        );
+
+        const cardsFromPois: RecommendedCard[] = mentionedPois.map((poi) =>
+          poiToRecommendedCard(poi, koreanNameForPoi(poi))
+        );
+
+        for (const dictShop of mentionedDictShops) {
+          const alreadyIncluded = cardsFromPois.some((c) => {
+            const shortName = (c.name || "").split("(")[0].split("（")[0].trim();
+            const dictZh = (dictShop.zh || "").split("(")[0].split("（")[0].trim();
+            return shortName === dictZh || shortName.includes(dictZh) || dictZh.includes(shortName);
+          });
+          if (!alreadyIncluded && dictShop.zh) {
+            cardsFromPois.push({
+              name: dictShop.zh,
+              koreanName: dictShop.koreanNames[0],
+              address: "",
+              tel: "",
+              rating: "",
+              cost: "",
+              openTime: "",
+              photos: [],
+              lat: "",
+              lng: "",
+            });
+          }
+        }
+
+        cardsFromPois.sort((a, b) => scoreForRecommendedCard(b) - scoreForRecommendedCard(a));
+
+        const allRecommendedShops: RecommendedCard[] = cardsFromPois.slice(0, 5);
+
+        const cardsNeedingInfo = allRecommendedShops.filter((s) => !s.address && s.name);
+        if (cardsNeedingInfo.length > 0) {
+          const extraSearches = cardsNeedingInfo.map(async (shop) => {
+            try {
+              const zhName = shop.name.split("(")[0].split("（")[0].trim();
+              const results = await amapSearch(zhName, "青岛");
+              if (results && results.length > 0) {
+                const poi = results[0];
+                shop.address = poi.address || "";
+                shop.tel = poi.tel || "";
+                shop.rating = poi.rating || "";
+                shop.cost = poi.cost || "";
+                shop.openTime = poi.openTime || "";
+                if (poi.photos?.length) shop.photos = poi.photos;
+                shop.lat = poi.location ? poi.location.split(",")[1]?.trim() ?? "" : shop.lat;
+                shop.lng = poi.location ? poi.location.split(",")[0]?.trim() ?? "" : shop.lng;
+              }
+            } catch {
+              /* ignore */
+            }
+          });
+          await Promise.all(extraSearches);
+        }
+
+        console.log(
+          "=== 추천 카드: " + allRecommendedShops.map((s) => s.koreanName || s.name).join(", ") + " ==="
+        );
+
+        const isAskingQuestion =
+          fullContent.includes("?") &&
+          (fullContent.includes("어떤") ||
+            fullContent.includes("찾으세요") ||
+            fullContent.includes("어느") ||
+            fullContent.includes("원하세요") ||
+            fullContent.includes("종류") ||
+            /🍖|🍜|🍛|☕|🍺|🏥|📚|💇|🏠/.test(fullContent));
+
+        const finalRecommendedShops = isAskingQuestion ? [] : allRecommendedShops;
+
+        const fullContentForUser = fullContent;
 
         send({
           type: "done",
           content: fullContentForUser,
           meta: { totalSources },
-          recommendedShops,
+          recommendedShops: finalRecommendedShops,
         });
 
         try {

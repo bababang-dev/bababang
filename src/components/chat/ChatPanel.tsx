@@ -27,6 +27,99 @@ function cleanResponse(text: string): string {
     .trim();
 }
 
+function lineStartsWithEmoji(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  const firstChar = t.codePointAt(0) || 0;
+  return firstChar > 0x1f000 || (firstChar >= 0x2600 && firstChar <= 0x27bf);
+}
+
+type AiSegment =
+  | { type: "blank" }
+  | { type: "text"; lines: string[] }
+  | { type: "chips"; lines: string[] };
+
+function segmentAiMessage(text: string): AiSegment[] {
+  const rawLines = text.split(/\r?\n/);
+  const segments: AiSegment[] = [];
+  let i = 0;
+  while (i < rawLines.length) {
+    const line = rawLines[i];
+    if (line.trim() === "") {
+      segments.push({ type: "blank" });
+      i++;
+      continue;
+    }
+    if (lineStartsWithEmoji(line)) {
+      const chipLines: string[] = [];
+      while (i < rawLines.length) {
+        const L = rawLines[i];
+        if (L.trim() === "") break;
+        if (!lineStartsWithEmoji(L)) break;
+        chipLines.push(L.trim());
+        i++;
+      }
+      segments.push({ type: "chips", lines: chipLines });
+    } else {
+      const textLines: string[] = [];
+      while (i < rawLines.length) {
+        const L = rawLines[i];
+        if (L.trim() === "") break;
+        if (lineStartsWithEmoji(L)) break;
+        textLines.push(L);
+        i++;
+      }
+      segments.push({ type: "text", lines: textLines });
+    }
+  }
+  return segments;
+}
+
+function AiMessageContent({
+  text,
+  isStatusPhase,
+  onChipTap,
+}: {
+  text: string;
+  isStatusPhase: boolean;
+  onChipTap: (line: string) => void;
+}) {
+  if (isStatusPhase) {
+    return <>{text}</>;
+  }
+  const segs = segmentAiMessage(text);
+  return (
+    <>
+      {segs.map((seg, segIdx) => {
+        if (seg.type === "blank") {
+          return <div key={segIdx} className="h-2 w-full shrink-0" />;
+        }
+        if (seg.type === "text") {
+          return (
+            <div key={segIdx} className="whitespace-pre-wrap break-words">
+              {seg.lines.join("\n")}
+            </div>
+          );
+        }
+        return (
+          <div key={segIdx} className="flex flex-wrap items-start">
+            {seg.lines.map((line, li) => (
+              <button
+                key={li}
+                type="button"
+                onClick={() => onChipTap(line)}
+                className="inline-flex items-center glass-dark cursor-pointer transition-all duration-200 m-[3px] rounded-[20px] px-[14px] py-2 text-[13px] text-white bg-[rgba(108,92,231,0.1)] hover:bg-[rgba(108,92,231,0.25)] border border-[rgba(108,92,231,0.3)]"
+              >
+                {line}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 const feedbackReasonsKo = ["정보가 틀림", "내용이 부족함", "엉뚱한 답변", "기타"] as const;
 const feedbackReasonsZh = ["信息不准确", "内容不足", "答非所问", "其他"] as const;
 
@@ -332,11 +425,14 @@ export function ChatPanel() {
                       <div className="max-w-[85%]">
                         <div
                           className={`rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-3 text-sm ${
-                            isStatusPhase ? "italic text-white/50" : "text-white/95"
+                            isStatusPhase ? "italic text-white/50" : "text-white/95 flex flex-col gap-1.5"
                           }`}
-                          style={{ whiteSpace: "pre-line" }}
                         >
-                          {msg.text}
+                          <AiMessageContent
+                            text={msg.text}
+                            isStatusPhase={isStatusPhase}
+                            onChipTap={(line) => void sendMessage(line)}
+                          />
                           {isLastAi && isStreaming && (
                             <span className="typing-cursor">▊</span>
                           )}
@@ -439,14 +535,29 @@ export function ChatPanel() {
                           >
                             <p className="text-[11px] text-white/50 px-1 mb-2">📍 추천 업체</p>
                             <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
-                              {msg.recommendedShops.map((shop, si) => (
+                              {msg.recommendedShops.map((shop, si) => {
+                                const displayKo = shop.koreanName?.trim();
+                                const displayZh = shop.name?.trim();
+                                const mainTitle = displayKo || displayZh || "";
+                                const showZhSub =
+                                  Boolean(displayKo && displayZh && displayKo !== displayZh);
+                                const mapLabel = displayKo || displayZh || "";
+                                const hasRatingOrCost = Boolean(shop.rating || shop.cost);
+                                const hasAddress = Boolean(shop.address?.trim());
+                                const hasTime = Boolean(shop.openTime && String(shop.openTime).trim());
+                                const hasAnyDetail = hasRatingOrCost || hasAddress || hasTime;
+                                return (
                                 <div
                                   key={`${shop.name}-${si}`}
-                                  className="relative w-[220px] flex-shrink-0"
+                                  className="group relative w-[240px] min-w-[240px] flex-shrink-0 glass-dark rounded-[14px] p-[14px] border border-white/10"
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setReportShop(shop);
+                                  }}
                                 >
                                   <button
                                     type="button"
-                                    className="absolute top-1.5 right-1.5 z-10 text-[12px] leading-none p-1 rounded-md bg-black/40 hover:bg-black/55 border border-white/10"
+                                    className="absolute top-[10px] right-[10px] z-10 text-[8px] leading-none p-0.5 rounded opacity-[0.08] hover:opacity-100 hover:bg-white/5 active:opacity-100 focus:opacity-100 focus:outline-none transition-opacity"
                                     aria-label="장소 신고"
                                     onClick={(e) => {
                                       e.preventDefault();
@@ -457,75 +568,90 @@ export function ChatPanel() {
                                     ⚠️
                                   </button>
                                   <button
-                                  type="button"
-                                  onClick={() =>
-                                    sendMessage(`${shop.name} 자세히 알려줘`)
-                                  }
-                                  className="w-full text-left rounded-xl bg-white/10 px-3 py-2 pr-8"
-                                >
-                                  <p className="text-sm font-semibold text-white">
-                                    🏬 {shop.name}
-                                  </p>
-                                  {shop.address ? (
-                                    <p className="text-[11px] text-white/50 mt-0.5 line-clamp-2">
-                                      {shop.address}
+                                    type="button"
+                                    onClick={() =>
+                                      sendMessage(`${mapLabel} 자세히 알려줘`)
+                                    }
+                                    className="w-full text-left pr-5"
+                                  >
+                                    <p className="text-[15px] font-bold text-white leading-snug">
+                                      {mainTitle}
                                     </p>
-                                  ) : null}
-                                  {shop.tel ? (
-                                    <p className="text-xs text-white/80 mt-1">📞 {shop.tel}</p>
-                                  ) : null}
-                                  {shop.rating ? (
-                                    <p className="text-xs text-white/80 mt-1">⭐ {shop.rating}</p>
-                                  ) : null}
-                                  {shop.cost ? (
-                                    <p className="text-xs text-white/80 mt-1">💰 {shop.cost}</p>
-                                  ) : null}
-                                </button>
-                                {shop.lat && shop.lng && (
-                                  <div className="mt-2 flex gap-2 px-1">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openMapActionSheet(
-                                          shop.lat!,
-                                          shop.lng!,
-                                          shop.name,
-                                          shop.address || ""
-                                        );
-                                      }}
-                                      className="flex-1 rounded-[12px] border px-3 py-1 text-[12px] leading-tight"
-                                      style={{
-                                        borderWidth: 1,
-                                        borderStyle: "solid",
-                                        borderColor: "var(--accent)",
-                                        color: "var(--accent)",
-                                        padding: "4px 12px",
-                                      }}
-                                    >
-                                      🗺️ 길찾기
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openDidi(shop.lat!, shop.lng!, shop.name);
-                                      }}
-                                      className="flex-1 rounded-[12px] border px-3 py-1 text-[12px] leading-tight"
-                                      style={{
-                                        borderWidth: 1,
-                                        borderStyle: "solid",
-                                        borderColor: "var(--gold)",
-                                        color: "var(--gold)",
-                                        padding: "4px 12px",
-                                      }}
-                                    >
-                                      🚗 택시
-                                    </button>
-                                  </div>
-                                )}
+                                    {showZhSub ? (
+                                      <p className="text-[12px] text-white/45 mt-0.5 line-clamp-2">
+                                        {displayZh}
+                                      </p>
+                                    ) : null}
+                                    {hasAnyDetail ? (
+                                      <>
+                                        {hasRatingOrCost ? (
+                                          <p
+                                            className="text-[12px] mt-2"
+                                            style={{ color: "var(--gold)" }}
+                                          >
+                                            {shop.rating ? `⭐ ${shop.rating}` : ""}
+                                            {shop.rating && shop.cost ? " · " : ""}
+                                            {shop.cost ? `인당 ${shop.cost}위안` : ""}
+                                          </p>
+                                        ) : null}
+                                        {hasAddress ? (
+                                          <p className="text-[11px] text-white/45 mt-1.5 line-clamp-1">
+                                            📍 {shop.address}
+                                          </p>
+                                        ) : null}
+                                        {hasTime ? (
+                                          <p className="text-[11px] text-white/45 mt-1">
+                                            🕐 {shop.openTime}
+                                          </p>
+                                        ) : null}
+                                      </>
+                                    ) : (
+                                      <p className="text-[11px] text-white/35 mt-2">
+                                        상세 정보를 확인해보세요
+                                      </p>
+                                    )}
+                                  </button>
+                                  {shop.lat && shop.lng && (
+                                    <div className="mt-3 flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openMapActionSheet(
+                                            shop.lat!,
+                                            shop.lng!,
+                                            shop.name,
+                                            shop.address || "",
+                                            displayKo || ""
+                                          );
+                                        }}
+                                        className="flex-1 rounded-full border border-white/15 bg-white/5 px-2 py-1.5 text-[10px] leading-tight text-white/90"
+                                        style={{
+                                          borderColor: "var(--accent)",
+                                          color: "var(--accent)",
+                                        }}
+                                      >
+                                        길찾기
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openDidi(shop.lat!, shop.lng!, shop.name);
+                                        }}
+                                        className="flex-1 rounded-full border border-white/15 bg-white/5 px-2 py-1.5 text-[10px] leading-tight"
+                                        style={{
+                                          borderColor: "var(--gold)",
+                                          color: "var(--gold)",
+                                        }}
+                                      >
+                                        택시
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </motion.div>
                         )}
@@ -625,7 +751,7 @@ export function ChatPanel() {
             onClose={() => setReportShop(null)}
             shopDisplayName={
               reportShop
-                ? `${reportShop.name}${reportShop.address ? ` · ${reportShop.address}` : ""}`
+                ? `${reportShop.koreanName || reportShop.name}${reportShop.address ? ` · ${reportShop.address}` : ""}`
                 : ""
             }
             onSubmitted={() =>

@@ -108,19 +108,21 @@ interface AppState {
   recommendSubTab: "places" | "promo";
   setRecommendSubTab: (t: "places" | "promo") => void;
 
-  /** 길찾기 / 지도 액션시트 */
+  /** 길찾기 / 지도 액션시트 — destName=중국어(딥링크), koreanName=표시용 */
   mapActionSheet: {
     open: boolean;
     destLat: string;
     destLng: string;
     destName: string;
     destAddress: string;
+    koreanName: string;
   } | null;
   openMapActionSheet: (
     destLat: string,
     destLng: string,
     destName: string,
-    destAddress: string
+    destAddress: string,
+    koreanName?: string
   ) => void;
   closeMapActionSheet: () => void;
 
@@ -312,7 +314,7 @@ export const useStore = create<AppState>((set, get) => ({
   setRecommendSubTab: (t) => set({ recommendSubTab: t }),
 
   mapActionSheet: null,
-  openMapActionSheet: (destLat, destLng, destName, destAddress) =>
+  openMapActionSheet: (destLat, destLng, destName, destAddress, koreanName) =>
     set({
       mapActionSheet: {
         open: true,
@@ -320,6 +322,7 @@ export const useStore = create<AppState>((set, get) => ({
         destLng,
         destName,
         destAddress,
+        koreanName: koreanName ?? "",
       },
     }),
   closeMapActionSheet: () => set({ mapActionSheet: null }),

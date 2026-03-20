@@ -76,10 +76,13 @@ export interface ChatMessage {
   /** 高德 실시간 검색 + AI 답변 매칭 결과 */
   recommendedShops?: Array<{
     name: string;
+    koreanName?: string;
     address: string;
     tel: string;
     rating: string;
     cost: string;
+    openTime?: string;
+    photos?: string[];
     lat: string;
     lng: string;
   }>;
