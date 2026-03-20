@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { PencilLine } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import { Header } from "@/components/layout/Header";
 import { PostCard } from "@/components/cards/PostCard";
 import { i18n } from "@/lib/i18n";
+import { mockPosts } from "@/lib/mockData";
+import { mapDbRowsToPosts } from "@/lib/postMap";
 
 // 필터 값(한국어 키) - mockData category와 매칭
 const categoryKeys = [
@@ -20,8 +22,34 @@ const categoryKeys = [
 
 export function CommunityPage() {
   const [filter, setFilter] = useState<(typeof categoryKeys)[number]>("전체");
-  const { lang, posts, openWritePost } = useStore();
+  const { lang, posts, openWritePost, setPosts } = useStore();
   const t = i18n[lang];
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const q =
+          filter === "전체"
+            ? ""
+            : `?category=${encodeURIComponent(filter)}`;
+        const res = await fetch(`/api/posts${q}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && Array.isArray(data.posts) && data.posts.length > 0) {
+          setPosts(mapDbRowsToPosts(data.posts));
+        } else {
+          setPosts(mockPosts);
+        }
+      } catch {
+        if (!cancelled) setPosts(mockPosts);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, setPosts]);
   const list =
     filter === "전체"
       ? posts

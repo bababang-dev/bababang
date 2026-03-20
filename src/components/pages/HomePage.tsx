@@ -19,6 +19,30 @@ const placeEmoji: Record<string, string> = {
   의료: "🏥",
 };
 
+function weatherConditionKo(raw: string): string {
+  const s = raw.trim().toLowerCase();
+  if (!s) return "";
+  if (s === "sunny" || s === "clear") return "맑음";
+  if (s.includes("partly")) return "구름조금";
+  if (s.includes("cloudy") || s.includes("overcast")) return "흐림";
+  if (s.includes("rain")) return "비";
+  if (s.includes("snow")) return "눈";
+  if (s.includes("fog")) return "안개";
+  return raw.trim();
+}
+
+function weatherEmojiFor(raw: string): string {
+  const s = raw.trim().toLowerCase();
+  if (!s) return "☀️";
+  if (s === "sunny" || s === "clear") return "☀️";
+  if (s.includes("partly")) return "⛅";
+  if (s.includes("cloudy") || s.includes("overcast")) return "☁️";
+  if (s.includes("rain")) return "🌧️";
+  if (s.includes("snow")) return "❄️";
+  if (s.includes("fog")) return "🌫️";
+  return "☀️";
+}
+
 function HotPlaceCard({
   place,
   lang,
@@ -74,18 +98,48 @@ export function HomePage() {
     usdToKrw: number;
   } | null>(null);
 
+  const DEFAULT_CNY_KRW = 190;
+  const DEFAULT_USD_KRW = 1386;
+
   useEffect(() => {
     const load = async () => {
+      let w: {
+        temp: string;
+        feelsLike: string;
+        condition: string;
+      } | null = null;
+      let e: { cnyToKrw: number; usdToKrw: number } = {
+        cnyToKrw: DEFAULT_CNY_KRW,
+        usdToKrw: DEFAULT_USD_KRW,
+      };
+
       try {
-        const [w, e] = await Promise.all([
-          fetch("/api/weather").then((r) => r.json()),
-          fetch("/api/exchange").then((r) => r.json()),
-        ]);
-        setWeather(w);
-        setExchange(e);
+        const wr = await fetch("/api/weather");
+        w = await wr.json();
+        if (!wr.ok) w = { temp: "", feelsLike: "", condition: "" };
       } catch {
-        // keep fallback UI
+        w = { temp: "", feelsLike: "", condition: "" };
       }
+
+      try {
+        const er = await fetch("/api/exchange");
+        const data = await er.json();
+        const krw = Number(data.cnyToKrw);
+        const usdKrw = Number(data.usdToKrw);
+        if (!Number.isFinite(krw) || krw <= 10) {
+          e = { cnyToKrw: DEFAULT_CNY_KRW, usdToKrw: DEFAULT_USD_KRW };
+        } else {
+          e = {
+            cnyToKrw: Math.round(krw),
+            usdToKrw: Number.isFinite(usdKrw) ? Math.round(usdKrw) : DEFAULT_USD_KRW,
+          };
+        }
+      } catch {
+        e = { cnyToKrw: DEFAULT_CNY_KRW, usdToKrw: DEFAULT_USD_KRW };
+      }
+
+      setWeather(w);
+      setExchange(e);
     };
     load();
   }, []);
@@ -138,32 +192,145 @@ export function HomePage() {
           </div>
         </motion.section>
 
-        <section className="mt-4 flex gap-3 overflow-x-auto pb-1 hide-scrollbar">
-          <div className="glass-dark rounded-2xl p-4 min-w-[220px] border border-white/10">
-            <p className="text-xs text-white/60 mb-2">날씨</p>
-            <p className="text-sm text-white">
-              {weather
-                ? `🌤️ ${weather.temp}°C ${weather.condition}`
-                : "정보를 불러오는 중..."}
-            </p>
-            <p className="text-xs text-white/60 mt-1">
-              {weather ? `체감 ${weather.feelsLike}°C` : ""}
-            </p>
-          </div>
-          <div className="glass-dark rounded-2xl p-4 min-w-[220px] border border-white/10">
-            <p className="text-xs text-white/60 mb-2">환율</p>
-            <p className="text-sm text-white">
-              {exchange
-                ? `💰 1위안 = ${Math.round(exchange.cnyToKrw)}원`
-                : "정보를 불러오는 중..."}
-            </p>
-            <p className="text-xs text-white/60 mt-1">
-              {exchange
-                ? `1달러 = ${Math.round(exchange.usdToKrw)}원`
-                : ""}
-            </p>
-          </div>
-        </section>
+        <div className="-mt-2 mb-5 w-full">
+          <section
+            className="glass-dark flex w-full items-stretch gap-0 overflow-hidden border border-white/10"
+            style={{
+              margin: "-8px 0 20px",
+              padding: "16px 20px",
+              borderRadius: 16,
+            }}
+          >
+            <div className="flex min-w-0 flex-1 flex-col gap-1 pr-3">
+              {!weather?.temp ? (
+                <>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    칭다오 날씨
+                  </p>
+                  <p
+                    className="font-outfit leading-tight text-white"
+                    style={{ fontSize: 26, fontWeight: 800 }}
+                  >
+                    …
+                  </p>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    불러오는 중
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    칭다오 날씨
+                  </p>
+                  <p
+                    className="font-outfit leading-tight text-white"
+                    style={{ fontSize: 26, fontWeight: 800 }}
+                  >
+                    {weatherEmojiFor(weather.condition)} {weather.temp}°C
+                  </p>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    {weatherConditionKo(weather.condition) || "—"} · 체감{" "}
+                    {weather.feelsLike}°C
+                  </p>
+                </>
+              )}
+            </div>
+            <div
+              className="w-0 flex-shrink-0 self-stretch border-l border-solid"
+              style={{ borderColor: "rgba(255,255,255,0.08)" }}
+              aria-hidden
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-1 pl-3 text-right">
+              {!exchange ? (
+                <>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    실시간 환율{" "}
+                    <span aria-hidden>🇨🇳</span> → <span aria-hidden>🇰🇷</span>
+                  </p>
+                  <p
+                    className="font-outfit leading-tight text-white"
+                    style={{ fontSize: 26, fontWeight: 800 }}
+                  >
+                    …
+                  </p>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    불러오는 중
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    실시간 환율{" "}
+                    <span aria-hidden>🇨🇳</span> → <span aria-hidden>🇰🇷</span>
+                  </p>
+                  <p
+                    className="font-outfit leading-tight text-white"
+                    style={{ fontSize: 26, fontWeight: 800 }}
+                  >
+                    <span aria-hidden>🇨🇳</span> ¥1 = ₩
+                    {exchange.cnyToKrw.toLocaleString("ko-KR")}
+                  </p>
+                  <p
+                    className="leading-tight"
+                    style={{
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    <span aria-hidden>🇺🇸</span> $1 = ₩
+                    {exchange.usdToKrw.toLocaleString("ko-KR")}
+                  </p>
+                </>
+              )}
+            </div>
+          </section>
+        </div>
 
         {/* AI 카드: 보라 반투명 배경 + 테두리 + sparkle + 제목 + 서브 + send + shimmer */}
         <motion.section

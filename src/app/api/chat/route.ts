@@ -78,7 +78,7 @@ async function crawlChinazoa(query: string): Promise<string[]> {
   } catch (e) {
     console.log("=== 차이나조아 에러 ===", e);
   }
-  return results;
+  return results.slice(0, 60);
 }
 
 // ═══ 高德地图 검색 ═══
@@ -86,7 +86,7 @@ async function amapSearch(keywords: string, city: string = "青岛"): Promise<Ar
   try {
     const key = process.env.AMAP_API_KEY;
     if (!key) return [];
-    const url = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(keywords)}&city=${encodeURIComponent(city)}&output=json&key=${key}&offset=10&extensions=all`;
+    const url = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(keywords)}&city=${encodeURIComponent(city)}&output=json&key=${key}&offset=30&extensions=all`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const data = (await res.json()) as {
       pois?: Array<{ name?: string; address?: string; tel?: string; biz_ext?: { rating?: string; cost?: string }; type?: string }>;
@@ -143,6 +143,118 @@ async function fetchBlogContent(url: string): Promise<string> {
   } catch {
     return "";
   }
+}
+
+type NaverItem = { title: string; desc: string; source: string; link: string };
+type AmapPoi = { name: string; address: string; tel: string; rating: string; cost: string; type: string };
+
+function analyzeCollectedData(
+  amapPois: AmapPoi[],
+  naverItems: NaverItem[],
+  chinazoaData: string[],
+  blogContents: string[]
+): string {
+  const excludeWords = new Set([
+    "칭다오", "청도", "중국", "한국", "맛집", "추천", "여행", "후기", "정보", "방문", "소개", "블로그", "카페", "사진", "메뉴", "가격", "위치", "주소", "영업", "시간", "분위기", "예약", "웨이팅", "서비스", "요리", "음식", "식당", "정말", "진짜", "완전", "엄청", "대박", "너무", "그냥", "미식", "아주",
+  ]);
+
+  const wordCount = new Map<string, { count: number; sources: Set<string>; contexts: string[] }>();
+
+  naverItems.forEach((item) => {
+    const text = item.title + " " + item.desc;
+    const words = text.match(/[가-힣]{2,8}/g) || [];
+    const seen = new Set<string>();
+    words.forEach((word) => {
+      if (excludeWords.has(word) || word.length < 2 || seen.has(word)) return;
+      seen.add(word);
+      if (!wordCount.has(word)) wordCount.set(word, { count: 0, sources: new Set(), contexts: [] });
+      const e = wordCount.get(word)!;
+      e.count++;
+      e.sources.add(item.source);
+      if (e.contexts.length < 2) {
+        const idx = text.indexOf(word);
+        e.contexts.push(text.slice(Math.max(0, idx - 30), Math.min(text.length, idx + word.length + 50)));
+      }
+    });
+  });
+
+  const topMentions = Array.from(wordCount.entries())
+    .filter(([, v]) => v.count >= 2)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 20);
+
+  const amapInfo = amapPois.map((poi) => {
+    return `${poi.name} | 주소: ${poi.address} | 평점: ${poi.rating || "없음"}/5 | 전화: ${poi.tel || "없음"} | 1인당: ${poi.cost ? poi.cost + "위안" : "없음"}`;
+  });
+
+  let report = "";
+
+  if (topMentions.length > 0) {
+    report += "[여러 글에서 자주 언급된 키워드 - 많이 언급될수록 신뢰도 높음]\n";
+    topMentions.forEach(([word, data]) => {
+      report += `"${word}": ${data.count}회 언급 (${Array.from(data.sources).join("+")})\n`;
+      if (data.contexts[0]) report += `  → ${data.contexts[0].slice(0, 80)}\n`;
+    });
+    report += "\n";
+  }
+
+  if (amapInfo.length > 0) {
+    report += "[高德地图 공식 정보 - 주소/전화/평점 정확]\n";
+    amapInfo.slice(0, 10).forEach((info, i) => {
+      report += `${i + 1}. ${info}\n`;
+    });
+    report += "\n";
+  }
+
+  if (blogContents.length > 0) {
+    report += "[상세 후기 핵심 요약]\n";
+    blogContents.forEach((content) => {
+      report += content.slice(0, 300) + "\n---\n";
+    });
+    report += "\n";
+  }
+
+  if (chinazoaData.length > 0) {
+    report += "[칭다오 한인 커뮤니티 업체 정보]\n";
+    chinazoaData.slice(0, 10).forEach((line) => {
+      report += line + "\n";
+    });
+  }
+
+  return report;
+}
+
+async function callDeepSeek(messages: Array<{ role: string; content: string }>, apiKey: string, retries = 3): Promise<string> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      console.log("=== DeepSeek 호출 시도 " + (i + 1) + "/" + retries + " ===");
+      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+        signal: AbortSignal.timeout(25000),
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          temperature: 0.7,
+          max_tokens: 1500,
+          messages: messages,
+        }),
+      });
+      if (!response.ok) {
+        console.error("DeepSeek HTTP error:", response.status);
+        continue;
+      }
+      const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const content = data.choices?.[0]?.message?.content;
+      if (content) return content;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.log("=== DeepSeek 시도 " + (i + 1) + " 실패: " + msg + " ===");
+      if (i < retries - 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+  return "지금 네트워크가 불안정해요. 잠시 후 다시 물어봐주세요~";
 }
 
 function uniqueByZh(list: ShopEntry[]): ShopEntry[] {
@@ -232,11 +344,11 @@ export async function POST(request: Request) {
     const [chinazoaData, ...amapAndNaverResults] = await Promise.all([
       crawlChinazoa(userMessage),
       ...amapKeywords.map((kw) => amapSearch(kw)),
-      naverSearch("blog", searchQuery, 10, startPos, sortType),
-      naverSearch("blog", searchQuery, 10, 11, sortType === "sim" ? "date" : "sim"),
+      naverSearch("blog", searchQuery, 15, startPos, sortType),
+      naverSearch("blog", searchQuery, 15, 11, sortType === "sim" ? "date" : "sim"),
       naverSearch("cafearticle", searchQuery + " 중정공", 10, 1, "sim"),
       naverSearch("cafearticle", searchQuery, 5, 1, "sim"),
-      naverSearch("kin", searchQuery, 10, 1, "sim"),
+      naverSearch("kin", searchQuery, 5, 1, "sim"),
     ]);
 
     // 高德 결과 합치기
@@ -269,37 +381,12 @@ export async function POST(request: Request) {
     const totalSources = chinazoaData.length + uniquePois.length + allNaverItems.length;
     console.log(`=== 총 수집: 차이나조아 ${chinazoaData.length} + 高德 ${uniquePois.length} + 네이버 ${allNaverItems.length} = ${totalSources}개 ===`);
 
-    // ═══ 2. searchContext 조합 ═══
-    const sections: string[] = [];
+    // ═══ 2. 수집 데이터 분석 → DeepSeek용 요약만 전달 ═══
+    const analysisReport = analyzeCollectedData(uniquePois, allNaverItems, chinazoaData, blogContents);
+    const searchContext = analysisReport.slice(0, 2000);
+    console.log("=== 분석 보고서 길이: " + searchContext.length + "자 ===");
 
-    if (uniquePois.length > 0) {
-      sections.push("=== 高德地图 공식 데이터 (주소/평점/전화번호 정확) ===");
-      uniquePois.slice(0, 15).forEach((poi, i) => {
-        sections.push(
-          `${i + 1}. ${poi.name}\n   주소: ${poi.address}\n   전화: ${poi.tel || "없음"}\n   평점: ${poi.rating || "없음"}/5\n   1인당: ${poi.cost ? poi.cost + "위안" : "정보없음"}\n   분류: ${poi.type}`
-        );
-      });
-    }
-
-    if (chinazoaData.length > 0) {
-      sections.push("\n=== 차이나조아 (칭다오 한인 커뮤니티 업체정보) ===");
-      sections.push(chinazoaData.slice(0, 20).join("\n"));
-    }
-
-    if (blogContents.length > 0) {
-      sections.push("\n=== 한국인 방문 후기 ===");
-      blogContents.forEach((c) => sections.push(c));
-    }
-
-    if (allNaverItems.length > 0) {
-      sections.push("\n=== 추가 후기 요약 ===");
-      allNaverItems.slice(0, 10).forEach((i) => {
-        sections.push(`${i.title}: ${i.desc.slice(0, 150)}`);
-      });
-    }
-
-    const searchContext = sections.join("\n");
-
+    const locationContext = "";
     const shopContext = detectedShop
       ? "\n유저가 찾는 가게: " +
         detectedShop.koreanNames[0] +
@@ -354,52 +441,33 @@ export async function POST(request: Request) {
 
     const userContent = searchContext
       ? `질문: ${userMessage}
-${shopContext}
+${locationContext}${shopContext}
 
-아래는 3개 소스에서 수집한 실제 데이터야:
-
-1) 高德地图: 가게가 직접 등록한 공식 정보 → 주소, 전화번호, 평점이 가장 정확함
-2) 칭다오 한인 커뮤니티 업체 DB → 한인들이 실제 이용하는 업체 목록
-3) 한국인 방문 후기 → 분위기, 추천메뉴, 팁
+아래는 高德地图, 한국인 블로그/카페/지식인, 한인 커뮤니티에서 총 ${totalSources}개 글을 수집하고 분석한 결과야.
+빈도가 높은 것 = 많은 사람이 추천한 검증된 정보야.
 
 답변 규칙:
-1. 주소, 전화번호, 평점은 반드시 高德地图 데이터를 사용해
-2. 한인 커뮤니티에 등록된 업체를 우선 추천해 (한국인이 실제 이용하는 곳)
-3. 후기에서 구체적인 추천메뉴, 가격, 웨이팅 정보를 가져와
-4. 3개 소스에서 모두 나오는 곳은 "한인들 사이에서 유명한" 식으로 강조
-5. 高德 평점 4.0 이상인 곳 우선
-6. 절대 데이터에 없는 가게명, 주소, 가격을 지어내지 마
-7. 카테고리별로 나눠서 번호 매겨 정리해
-8. 각 가게: 이름(중국어), 위치, 추천메뉴, 가격대, 한줄팁
-9. 답변 마지막에 출처나 데이터 관련 언급 절대 하지 마. 자연스럽게 마무리해.
+1. [자주 언급된 키워드]에서 빈도 높은 것을 우선 추천
+2. [高德地图 공식 정보]의 주소, 전화, 평점을 사용
+3. [상세 후기]에서 구체적인 메뉴, 가격, 팁을 가져와
+4. 여러 소스에서 공통으로 나오는 정보를 강조
+5. 검색결과에 없는 가게명, 주소, 가격을 지어내지 마
+6. 출처 관련 단어 언급하지 마 (블로그, 카페, 네이버, 高德 등)
+7. 마크다운 문법 절대 쓰지마
+8. 줄바꿈 많이 넣어서 읽기 쉽게
 
 ${searchContext}`
       : userMessage;
 
-    const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        temperature: 0.7,
-        max_tokens: 2000,
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages.slice(0, -1).map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
-          { role: "user", content: userContent },
-        ],
-      }),
-    });
+    let content = await callDeepSeek(
+      [
+        { role: "system", content: systemPrompt },
+        ...messages.slice(0, -1).map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
+        { role: "user", content: userContent },
+      ],
+      apiKey
+    );
 
-    if (!response.ok) {
-      console.error("DeepSeek error:", response.status);
-      return NextResponse.json({ error: "AI service error" }, { status: response.status });
-    }
-
-    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    let content = data.choices?.[0]?.message?.content ?? "답변을 생성하지 못했어요.";
-
-    // 마크다운 잔재 제거
     content = content
       .replace(/\*\*/g, "")
       .replace(/\*/g, "")
@@ -426,6 +494,9 @@ ${searchContext}`
     });
   } catch (e) {
     console.error("Chat API error:", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({
+      content: "지금 네트워크가 불안정해요. 잠시 후 다시 물어봐주세요~",
+      meta: { totalSources: 0 },
+    });
   }
 }

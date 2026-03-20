@@ -32,6 +32,24 @@ const quickPrompts = [
   "quickRealty",
 ] as const;
 
+async function persistFeedbackToDb(payload: {
+  userId: number;
+  userMessage: string;
+  aiResponse: string;
+  feedback: "good" | "bad";
+  feedbackReason?: string;
+}) {
+  try {
+    await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 function TypingIndicator() {
   return (
     <motion.div
@@ -254,6 +272,17 @@ export function ChatPanel() {
                                 feedback: "good",
                                 timestamp: new Date(),
                               });
+                              const userMsg =
+                                i > 0 && chatMessages[i - 1]?.role === "user"
+                                  ? chatMessages[i - 1].text
+                                  : "";
+                              const aiMsg = chatMessages[i]?.text ?? "";
+                              void persistFeedbackToDb({
+                                userId: 1,
+                                userMessage: userMsg,
+                                aiResponse: aiMsg,
+                                feedback: "good",
+                              });
                               setToast("감사합니다! 더 좋은 답변 드릴게요 😊");
                             }}
                             className={`p-1 rounded ${
@@ -289,6 +318,18 @@ export function ChatPanel() {
                                       feedback: "bad",
                                       reason,
                                       timestamp: new Date(),
+                                    });
+                                    const userMsg =
+                                      i > 0 && chatMessages[i - 1]?.role === "user"
+                                        ? chatMessages[i - 1].text
+                                        : "";
+                                    const aiMsg = chatMessages[i]?.text ?? "";
+                                    void persistFeedbackToDb({
+                                      userId: 1,
+                                      userMessage: userMsg,
+                                      aiResponse: aiMsg,
+                                      feedback: "bad",
+                                      feedbackReason: reason,
                                     });
                                     setReasonPickerFor(null);
                                     setToast("의견 반영할게요!");

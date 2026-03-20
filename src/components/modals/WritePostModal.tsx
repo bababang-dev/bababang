@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ChevronLeft } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import type { Post } from "@/types";
+import { mapDbRowsToPosts } from "@/lib/postMap";
 
 const categories = ["생활정보", "맛집", "비자", "육아", "비즈니스", "자유"] as const;
 
@@ -13,6 +14,7 @@ export function WritePostModal() {
     writePostOpen,
     closeWritePost,
     addPost,
+    setPosts,
     setActiveTab,
     user,
     lang,
@@ -36,7 +38,7 @@ export function WritePostModal() {
 
   if (!writePostOpen) return null;
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     if (!title.trim() || !content.trim()) return;
     const tags = tagsText
       .split(",")
@@ -60,7 +62,32 @@ export function WritePostModal() {
       tags,
       tagsZh: tags,
     };
-    addPost(post);
+    try {
+      const res = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: 1,
+          category,
+          title: title.trim(),
+          content: content.trim(),
+          tags: tagsText.trim(),
+        }),
+      });
+      if (res.ok) {
+        const listRes = await fetch("/api/posts");
+        const listData = await listRes.json().catch(() => ({}));
+        if (listRes.ok && Array.isArray(listData.posts) && listData.posts.length > 0) {
+          setPosts(mapDbRowsToPosts(listData.posts));
+        } else {
+          addPost(post);
+        }
+      } else {
+        addPost(post);
+      }
+    } catch {
+      addPost(post);
+    }
     closeWritePost();
     setActiveTab("community");
     setCategory("생활정보");
@@ -130,6 +157,9 @@ export function WritePostModal() {
           placeholder="태그를 입력하세요 (쉼표로 구분)"
           className="w-full rounded-xl bg-white px-4 py-3 text-sm outline-none border border-black/10"
         />
+        <p className="text-xs text-black/40 -mt-2">
+          태그를 안 쓰면 AI가 자동으로 생성해요
+        </p>
       </div>
     </motion.div>
   );

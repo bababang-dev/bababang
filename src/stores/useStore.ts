@@ -61,6 +61,7 @@ interface AppState {
   user: User | null;
   setUser: (user: User | null) => void;
   posts: Post[];
+  setPosts: (posts: Post[]) => void;
   addPost: (post: Post) => void;
 
   // 무료 회원 일일 질문 제한
@@ -155,6 +156,7 @@ export const useStore = create<AppState>((set, get) => ({
   user: null,
   setUser: (user) => set({ user }),
   posts: mockPosts,
+  setPosts: (posts) => set({ posts }),
   addPost: (post) => set((s) => ({ posts: [post, ...s.posts] })),
 
   dailyQuestionCount: 0,
