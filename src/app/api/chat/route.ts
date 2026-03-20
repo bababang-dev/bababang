@@ -224,39 +224,6 @@ function analyzeCollectedData(
   return report;
 }
 
-async function callDeepSeek(messages: Array<{ role: string; content: string }>, apiKey: string, retries = 3): Promise<string> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      console.log("=== DeepSeek 호출 시도 " + (i + 1) + "/" + retries + " ===");
-      const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-        signal: AbortSignal.timeout(25000),
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          temperature: 0.7,
-          max_tokens: 1500,
-          messages: messages,
-        }),
-      });
-      if (!response.ok) {
-        console.error("DeepSeek HTTP error:", response.status);
-        continue;
-      }
-      const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const content = data.choices?.[0]?.message?.content;
-      if (content) return content;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.log("=== DeepSeek 시도 " + (i + 1) + " 실패: " + msg + " ===");
-      if (i < retries - 1) {
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    }
-  }
-  return "지금 네트워크가 불안정해요. 잠시 후 다시 물어봐주세요~";
-}
-
 function uniqueByZh(list: ShopEntry[]): ShopEntry[] {
   return list.filter((s, idx, arr) => arr.findIndex((x) => x.zh === s.zh) === idx);
 }
@@ -306,104 +273,109 @@ function matchRecommendedShops(
 }
 
 export async function POST(request: Request) {
+  let body: { messages?: unknown; localShops?: unknown };
   try {
-    const body = await request.json();
-    const messages = body.messages as Array<{ role: string; content: string }>;
-    const localShops = (body.localShops ?? []) as ShopEntry[];
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return NextResponse.json({ error: "messages required" }, { status: 400 });
-    }
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
 
-    const userMessage = messages[messages.length - 1]?.content || "";
-    const searchQuery = "칭다오 " + userMessage.slice(0, 30).trim();
-    const sortType = Math.random() > 0.5 ? "sim" : "date";
-    const startPos = Math.floor(Math.random() * 5) + 1;
+  const messages = body.messages as Array<{ role: string; content: string }>;
+  const localShops = (body.localShops ?? []) as ShopEntry[];
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return NextResponse.json({ error: "messages required" }, { status: 400 });
+  }
 
-    // ═══ 1. 3개 소스 동시 검색 ═══
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) return NextResponse.json({ error: "API key missing" }, { status: 500 });
 
-    // 가게 별명 감지
-    const detectedShop = findShop(userMessage);
-    if (detectedShop) {
-      console.log("=== 가게 감지: " + detectedShop.koreanNames[0] + " → " + detectedShop.zh + " ===");
-    }
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: object) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      };
+      try {
+        send({ type: "status", content: "정보를 수집하고 있어요..." });
 
-    // 카테고리 감지
-    const amapKeywordsFromDict = findCategories(userMessage);
+        const userMessage = messages[messages.length - 1]?.content || "";
+        const searchQuery = "칭다오 " + userMessage.slice(0, 30).trim();
+        const sortType = Math.random() > 0.5 ? "sim" : "date";
+        const startPos = Math.floor(Math.random() * 5) + 1;
 
-    // 高德 검색 키워드 결정
-    let amapKeywords: string[];
-    if (detectedShop) {
-      amapKeywords = [detectedShop.zh];
-    } else if (amapKeywordsFromDict.length > 0) {
-      amapKeywords = amapKeywordsFromDict;
-    } else {
-      amapKeywords = ["美食"];
-    }
+        const detectedShop = findShop(userMessage);
+        if (detectedShop) {
+          console.log("=== 가게 감지: " + detectedShop.koreanNames[0] + " → " + detectedShop.zh + " ===");
+        }
 
-    // 동시 실행: 차이나조아 + 高德 + 네이버(6개)
-    const [chinazoaData, ...amapAndNaverResults] = await Promise.all([
-      crawlChinazoa(userMessage),
-      ...amapKeywords.map((kw) => amapSearch(kw)),
-      naverSearch("blog", searchQuery, 15, startPos, sortType),
-      naverSearch("blog", searchQuery, 15, 11, sortType === "sim" ? "date" : "sim"),
-      naverSearch("cafearticle", searchQuery + " 중정공", 10, 1, "sim"),
-      naverSearch("cafearticle", searchQuery, 5, 1, "sim"),
-      naverSearch("kin", searchQuery, 5, 1, "sim"),
-    ]);
+        const amapKeywordsFromDict = findCategories(userMessage);
 
-    // 高德 결과 합치기
-    const amapCount = amapKeywords.length;
-    const allAmapPois = (amapAndNaverResults.slice(0, amapCount) as Array<Array<{ name: string; address: string; tel: string; rating: string; cost: string; type: string }>>).flat();
-    const uniquePois = allAmapPois.filter(
-      (poi, idx, arr) => arr.findIndex((p) => p.name === poi.name) === idx
-    );
+        let amapKeywords: string[];
+        if (detectedShop) {
+          amapKeywords = [detectedShop.zh];
+        } else if (amapKeywordsFromDict.length > 0) {
+          amapKeywords = amapKeywordsFromDict;
+        } else {
+          amapKeywords = ["美食"];
+        }
 
-    // 네이버 결과 합치기
-    const naverResults = amapAndNaverResults.slice(amapCount) as Array<Array<{ title?: string; description?: string; link?: string }>>;
-    const [blog1, blog2, cafeZh, cafe1, kin1] = naverResults;
-    const allNaverItems = [
-      ...(blog1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
-      ...(blog2 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
-      ...(cafeZh || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
-      ...(cafe1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
-      ...(kin1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "지식인", link: i.link ?? "" })),
-    ].filter((item, idx, arr) => arr.findIndex((a) => a.link === item.link) === idx);
+        const [chinazoaData, ...amapAndNaverResults] = await Promise.all([
+          crawlChinazoa(userMessage),
+          ...amapKeywords.map((kw) => amapSearch(kw)),
+          naverSearch("blog", searchQuery, 15, startPos, sortType),
+          naverSearch("blog", searchQuery, 15, 11, sortType === "sim" ? "date" : "sim"),
+          naverSearch("cafearticle", searchQuery + " 중정공", 10, 1, "sim"),
+          naverSearch("cafearticle", searchQuery, 5, 1, "sim"),
+          naverSearch("kin", searchQuery, 5, 1, "sim"),
+        ]);
 
-    // 블로그 원문 크롤링 (상위 3개)
-    const topBlogs = allNaverItems.filter((i) => i.source === "블로그").slice(0, 3);
-    const blogContents = await Promise.all(
-      topBlogs.map(async (item) => {
-        const full = await fetchBlogContent(item.link);
-        return full ? `${item.title}\n${full}` : `${item.title}: ${item.desc}`;
-      })
-    );
+        const amapCount = amapKeywords.length;
+        const allAmapPois = (amapAndNaverResults.slice(0, amapCount) as Array<Array<AmapPoi>>).flat();
+        const uniquePois = allAmapPois.filter(
+          (poi, idx, arr) => arr.findIndex((p) => p.name === poi.name) === idx
+        );
 
-    const totalSources = chinazoaData.length + uniquePois.length + allNaverItems.length;
-    console.log(`=== 총 수집: 차이나조아 ${chinazoaData.length} + 高德 ${uniquePois.length} + 네이버 ${allNaverItems.length} = ${totalSources}개 ===`);
+        const naverResults = amapAndNaverResults.slice(amapCount) as Array<Array<{ title?: string; description?: string; link?: string }>>;
+        const [blog1, blog2, cafeZh, cafe1, kin1] = naverResults;
+        const allNaverItems = [
+          ...(blog1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
+          ...(blog2 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "블로그", link: i.link ?? "" })),
+          ...(cafeZh || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
+          ...(cafe1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "카페", link: i.link ?? "" })),
+          ...(kin1 || []).map((i) => ({ title: stripHtml(i.title ?? ""), desc: stripHtml(i.description ?? ""), source: "지식인", link: i.link ?? "" })),
+        ].filter((item, idx, arr) => arr.findIndex((a) => a.link === item.link) === idx);
 
-    // ═══ 2. 수집 데이터 분석 → DeepSeek용 요약만 전달 ═══
-    const analysisReport = analyzeCollectedData(uniquePois, allNaverItems, chinazoaData, blogContents);
-    const searchContext = analysisReport.slice(0, 2000);
-    console.log("=== 분석 보고서 길이: " + searchContext.length + "자 ===");
+        const topBlogs = allNaverItems.filter((i) => i.source === "블로그").slice(0, 3);
+        const blogContents = await Promise.all(
+          topBlogs.map(async (item) => {
+            const full = await fetchBlogContent(item.link);
+            return full ? `${item.title}\n${full}` : `${item.title}: ${item.desc}`;
+          })
+        );
 
-    const locationContext = "";
-    const shopContext = detectedShop
-      ? "\n유저가 찾는 가게: " +
-        detectedShop.koreanNames[0] +
-        " = " +
-        detectedShop.zh +
-        " (" +
-        (detectedShop.description ?? "") +
-        ", " +
-        detectedShop.district +
-        " 지역)\n"
-      : "";
+        const totalSources = chinazoaData.length + uniquePois.length + allNaverItems.length;
+        console.log(`=== 총 수집: 차이나조아 ${chinazoaData.length} + 高德 ${uniquePois.length} + 네이버 ${allNaverItems.length} = ${totalSources}개 ===`);
 
-    // ═══ 3. DeepSeek 호출 ═══
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: "API key missing" }, { status: 500 });
+        const analysisReport = analyzeCollectedData(uniquePois, allNaverItems, chinazoaData, blogContents);
+        const searchContext = analysisReport.slice(0, 2000);
+        console.log("=== 분석 보고서 길이: " + searchContext.length + "자 ===");
 
-    const systemPrompt = `너는 BabaBang(아빠방) AI야. 칭다오에 사는 한국인들을 도와주는 친근한 생활 도우미.
+        const locationContext = "";
+        const shopContext = detectedShop
+          ? "\n유저가 찾는 가게: " +
+            detectedShop.koreanNames[0] +
+            " = " +
+            detectedShop.zh +
+            " (" +
+            (detectedShop.description ?? "") +
+            ", " +
+            detectedShop.district +
+            " 지역)\n"
+          : "";
+
+        send({ type: "status", content: `${totalSources}개 소스에서 분석 완료! 답변 생성중...` });
+
+        const systemPrompt = `너는 BabaBang(아빠방) AI야. 칭다오에 사는 한국인들을 도와주는 친근한 생활 도우미.
 
 말투:
 - 친한 형이나 누나가 카톡으로 알려주듯이 편하게
@@ -439,8 +411,8 @@ export async function POST(request: Request) {
 - 마지막에 출처나 분석 결과 언급하지 마
 - 마지막은 "궁금한 거 더 있으면 편하게 물어보세요~" 같은 가벼운 마무리`;
 
-    const userContent = searchContext
-      ? `질문: ${userMessage}
+        const userContent = searchContext
+          ? `질문: ${userMessage}
 ${locationContext}${shopContext}
 
 아래는 高德地图, 한국인 블로그/카페/지식인, 한인 커뮤니티에서 총 ${totalSources}개 글을 수집하고 분석한 결과야.
@@ -457,46 +429,131 @@ ${locationContext}${shopContext}
 8. 줄바꿈 많이 넣어서 읽기 쉽게
 
 ${searchContext}`
-      : userMessage;
+          : userMessage;
 
-    let content = await callDeepSeek(
-      [
-        { role: "system", content: systemPrompt },
-        ...messages.slice(0, -1).map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })),
-        { role: "user", content: userContent },
-      ],
-      apiKey
-    );
+        const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+          signal: AbortSignal.timeout(50000),
+          body: JSON.stringify({
+            model: "deepseek-chat",
+            temperature: 0.7,
+            max_tokens: 1500,
+            stream: true,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+              { role: "user", content: userContent },
+            ],
+          }),
+        });
 
-    content = content
-      .replace(/\*\*/g, "")
-      .replace(/\*/g, "")
-      .replace(/```[^`]*```/g, "")
-      .replace(/#{1,6}\s/g, "")
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-      .trim();
+        if (!response.ok || !response.body) {
+          send({ type: "error", content: "AI 연결에 실패했어요. 다시 시도해주세요." });
+          return;
+        }
 
-    const matchedShops = matchRecommendedShops(userMessage, content, localShops);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullContent = "";
 
-    return NextResponse.json({
-      content,
-      recommendedShops: matchedShops.slice(0, 3).map((shop) => ({
-        zh: shop.zh,
-        koreanName: shop.koreanNames[0],
-        category: shop.category,
-        district: shop.district,
-        description: shop.description || "",
-        recommendMenu: shop.recommendMenu || "",
-        priceRange: shop.priceRange || "",
-        tip: shop.tip || "",
-      })),
-      meta: { totalSources },
-    });
-  } catch (e) {
-    console.error("Chat API error:", e);
-    return NextResponse.json({
-      content: "지금 네트워크가 불안정해요. 잠시 후 다시 물어봐주세요~",
-      meta: { totalSources: 0 },
-    });
-  }
+        while (true) {
+          const { done, value } = await reader.read();
+          buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (data === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> };
+              const content = parsed.choices?.[0]?.delta?.content;
+              if (content) {
+                const clean = content.replace(/\*\*/g, "").replace(/#{1,6}\s/g, "");
+                fullContent += clean;
+                send({ type: "content", content: clean });
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          if (done) break;
+        }
+
+        if (buffer.trim()) {
+          const trimmed = buffer.trim();
+          if (trimmed.startsWith("data:")) {
+            const data = trimmed.slice(5).trim();
+            if (data !== "[DONE]") {
+              try {
+                const parsed = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> };
+                const content = parsed.choices?.[0]?.delta?.content;
+                if (content) {
+                  const clean = content.replace(/\*\*/g, "").replace(/#{1,6}\s/g, "");
+                  fullContent += clean;
+                  send({ type: "content", content: clean });
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        }
+
+        fullContent = fullContent
+          .replace(/\*\*/g, "")
+          .replace(/\*/g, "")
+          .replace(/```[^`]*```/g, "")
+          .replace(/#{1,6}\s/g, "")
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+          .trim();
+
+        const matchedShops = matchRecommendedShops(userMessage, fullContent, localShops);
+        const recommendedShops = matchedShops.slice(0, 3).map((shop) => ({
+          zh: shop.zh,
+          koreanName: shop.koreanNames[0],
+          category: shop.category,
+          district: shop.district,
+          description: shop.description || "",
+          recommendMenu: shop.recommendMenu || "",
+          priceRange: shop.priceRange || "",
+          tip: shop.tip || "",
+        }));
+
+        send({
+          type: "done",
+          content: fullContent,
+          meta: { totalSources },
+          recommendedShops,
+        });
+
+        try {
+          const pool = (await import("@/lib/db")).default;
+          await pool.query("INSERT INTO chat_history (user_id, user_message, ai_response) VALUES (?, ?, ?)", [
+            1,
+            userMessage,
+            fullContent,
+          ]);
+        } catch (dbErr) {
+          console.error("chat_history insert:", dbErr);
+        }
+      } catch (e: unknown) {
+        console.error("Stream error:", e);
+        send({ type: "error", content: "네트워크가 불안정해요. 다시 시도해주세요~" });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }

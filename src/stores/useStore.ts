@@ -17,6 +17,10 @@ interface AppState {
   toggleChat: () => void;
   chatMessages: ChatMessage[];
   addChatMessage: (msg: ChatMessage) => void;
+  updateLastAiMessage: (
+    text: string,
+    extra?: { recommendedShops?: ChatMessage["recommendedShops"] }
+  ) => void;
   clearChatMessages: () => void;
   chatFeedback: Array<{
     messageIndex: number;
@@ -101,6 +105,23 @@ export const useStore = create<AppState>((set, get) => ({
   chatMessages: [],
   addChatMessage: (msg) =>
     set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
+  updateLastAiMessage: (text, extra) =>
+    set((s) => {
+      const msgs = [...s.chatMessages];
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === "ai") {
+          msgs[i] = {
+            ...msgs[i],
+            text,
+            ...(extra?.recommendedShops !== undefined
+              ? { recommendedShops: extra.recommendedShops }
+              : {}),
+          };
+          break;
+        }
+      }
+      return { chatMessages: msgs };
+    }),
   clearChatMessages: () => set({ chatMessages: [] }),
   chatFeedback: [],
   addFeedback: (feedback) =>

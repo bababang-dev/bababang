@@ -6,6 +6,7 @@ import { X, Send, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import { i18n } from "@/lib/i18n";
 import type { ShopEntry } from "@/lib/shopDict";
+import type { ChatMessage } from "@/types";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -50,38 +51,13 @@ async function persistFeedbackToDb(payload: {
   }
 }
 
-function TypingIndicator() {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="flex gap-1 py-2"
-    >
-      <motion.span
-        animate={{ opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 0.8, repeat: Infinity }}
-        className="w-2 h-2 rounded-full bg-white/70"
-      />
-      <motion.span
-        animate={{ opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 0.8, repeat: Infinity, delay: 0.2 }}
-        className="w-2 h-2 rounded-full bg-white/70"
-      />
-      <motion.span
-        animate={{ opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 0.8, repeat: Infinity, delay: 0.4 }}
-        className="w-2 h-2 rounded-full bg-white/70"
-      />
-    </motion.div>
-  );
-}
-
 export function ChatPanel() {
   const {
     chatOpen,
     setChatOpen,
     chatMessages,
     addChatMessage,
+    updateLastAiMessage,
     lang,
     user,
     canAskQuestion,
@@ -94,7 +70,8 @@ export function ChatPanel() {
     incrementQuestionCount,
   } = useStore();
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamReplyStarted, setStreamReplyStarted] = useState(false);
   const [toast, setToast] = useState("");
   const [feedbackMap, setFeedbackMap] = useState<Record<number, "good" | "bad">>(
     {}
@@ -117,7 +94,7 @@ export function ChatPanel() {
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [chatMessages, isTyping]);
+  }, [chatMessages, isStreaming]);
 
   useEffect(() => {
     if (!toast) return;
@@ -139,14 +116,18 @@ export function ChatPanel() {
       return;
     }
     addChatMessage({ role: "user", text: trimmed });
+    addChatMessage({ role: "ai", text: "" });
     setInput("");
-    setIsTyping(true);
+    setIsStreaming(true);
+    setStreamReplyStarted(false);
+
     const messagesForApi = [...chatMessages, { role: "user" as const, text: trimmed }]
       .slice(-10)
       .map((m) => ({
         role: m.role === "ai" ? ("assistant" as const) : ("user" as const),
         content: m.text,
       }));
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -161,25 +142,85 @@ export function ChatPanel() {
               : [],
         }),
       });
-      const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        addChatMessage({ role: "ai", text: t.errorTryAgain });
-        setIsTyping(false);
+        const errData = (await res.json().catch(() => ({}))) as { content?: string };
+        updateLastAiMessage(errData.content ?? t.errorTryAgain);
         return;
       }
-      const content = data.content ?? t.errorTryAgain;
-      addChatMessage({
-        role: "ai",
-        text: cleanResponse(content),
-        recommendedShops: data.recommendedShops ?? [],
-      });
-      incrementQuestion();
-      incrementQuestionCount();
-      deductToken();
+
+      if (!res.body) {
+        updateLastAiMessage("응답을 받지 못했어요. 다시 시도해주세요~");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullText = "";
+      let completed = false;
+      let replyStarted = false;
+
+      const parseSseLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) return;
+        const dataStr = trimmed.slice(5).trim();
+        try {
+          const data = JSON.parse(dataStr) as {
+            type?: string;
+            content?: string;
+            meta?: { totalSources?: number };
+            recommendedShops?: ChatMessage["recommendedShops"];
+          };
+          if (data.type === "status" && typeof data.content === "string") {
+            updateLastAiMessage(data.content);
+          } else if (data.type === "content" && typeof data.content === "string") {
+            if (!replyStarted) {
+              replyStarted = true;
+              setStreamReplyStarted(true);
+            }
+            fullText += data.content;
+            updateLastAiMessage(fullText);
+          } else if (data.type === "done") {
+            completed = true;
+            const finalText =
+              typeof data.content === "string" ? cleanResponse(data.content) : cleanResponse(fullText);
+            updateLastAiMessage(finalText, {
+              recommendedShops: data.recommendedShops ?? [],
+            });
+            incrementQuestion();
+            incrementQuestionCount();
+            deductToken();
+          } else if (data.type === "error" && typeof data.content === "string") {
+            updateLastAiMessage(data.content);
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          parseSseLine(line);
+        }
+        if (done) break;
+      }
+      if (buffer.trim()) {
+        parseSseLine(buffer);
+      }
+
+      if (!completed && fullText) {
+        updateLastAiMessage(cleanResponse(fullText));
+      }
     } catch {
-      addChatMessage({ role: "ai", text: t.errorTryAgain });
+      updateLastAiMessage("네트워크가 불안정해요. 다시 시도해주세요~");
     } finally {
-      setIsTyping(false);
+      setIsStreaming(false);
+      setStreamReplyStarted(false);
     }
   };
 
@@ -187,6 +228,17 @@ export function ChatPanel() {
     <AnimatePresence>
       {chatOpen && (
         <>
+          <style>{`
+            @keyframes blink {
+              0%, 100% { opacity: 1; }
+              50% { opacity: 0; }
+            }
+            .typing-cursor {
+              display: inline;
+              animation: blink 0.8s infinite;
+              color: var(--accent-light, #a78bfa);
+            }
+          `}</style>
           {/* 오버레이: backdrop-blur(4px) */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -239,7 +291,17 @@ export function ChatPanel() {
               className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin"
             >
               <AnimatePresence>
-                {chatMessages.map((msg, i) => (
+                {chatMessages.map((msg, i) => {
+                  const isLastAi =
+                    msg.role === "ai" && i === chatMessages.length - 1;
+                  const isStatusPhase =
+                    isLastAi &&
+                    isStreaming &&
+                    !streamReplyStarted &&
+                    (msg.text.length === 0 ||
+                      msg.text.includes("정보를 수집") ||
+                      msg.text.includes("분석 완료"));
+                  return (
                   <motion.div
                     key={`msg-${i}`}
                     initial={{ opacity: 0, scale: 0.92 }}
@@ -256,10 +318,15 @@ export function ChatPanel() {
                     {msg.role === "ai" ? (
                       <div className="max-w-[85%]">
                         <div
-                          className="rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-3 text-sm text-white/95"
+                          className={`rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-3 text-sm ${
+                            isStatusPhase ? "italic text-white/50" : "text-white/95"
+                          }`}
                           style={{ whiteSpace: "pre-line" }}
                         >
                           {msg.text}
+                          {isLastAi && isStreaming && (
+                            <span className="typing-cursor">▊</span>
+                          )}
                         </div>
                         <div className="mt-1.5 flex items-center gap-2 text-white/50">
                           <button
@@ -402,18 +469,8 @@ export function ChatPanel() {
                       </div>
                     )}
                   </motion.div>
-                ))}
-                {isTyping && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.92 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="flex justify-start"
-                  >
-                    <div className="rounded-tl-2xl rounded-tr-2xl rounded-br-2xl rounded-bl-[4px] bg-white/10 backdrop-blur-card px-4 py-2">
-                      <TypingIndicator />
-                    </div>
-                  </motion.div>
-                )}
+                  );
+                })}
               </AnimatePresence>
 
               {chatMessages.length === 0 && (
