@@ -55,6 +55,53 @@ body {
   font-family: var(--font-body);
   overflow: hidden;
   background: var(--bg-dark);
+  /* iOS 노치/상단 safe-area */
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* 하단 네비게이션 safe-area */
+.bottom-nav {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 모든 fixed 하단 요소용 (필요 시 조합) */
+.fixed-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 채팅 패널: 동적 뷰포트 + 키보드 대응 레이아웃 */
+.chat-container {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  max-height: 100vh;
+  max-height: 100dvh;
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-input-area {
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: rgba(10, 10, 15, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 메인 앱 래퍼: 모바일 주소창/툴바에 맞춤 높이 */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
 }
 
 /* ═══════════════════════════════════

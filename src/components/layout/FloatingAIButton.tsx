@@ -5,7 +5,9 @@ import { Sparkles } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 
 export function FloatingAIButton() {
-  const { toggleChat } = useStore();
+  const { toggleChat, chatOpen } = useStore();
+
+  if (chatOpen) return null;
 
   return (
     <div className="fixed bottom-0 left-1/2 z-50 -translate-x-1/2 w-full max-w-[430px] h-0 pointer-events-none">

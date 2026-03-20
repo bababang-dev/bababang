@@ -24,13 +24,15 @@ const darkTabs: TabKey[] = ["home", "my"];
 const isDark = (tab: TabKey) => darkTabs.includes(tab);
 
 export function BottomNav() {
-  const { activeTab, setActiveTab, lang } = useStore();
+  const { activeTab, setActiveTab, lang, chatOpen } = useStore();
   const t = i18n[lang].tab;
   const dark = isDark(activeTab);
 
+  if (chatOpen) return null;
+
   return (
     <nav
-      className={`fixed bottom-0 left-0 right-0 z-40 max-w-[430px] mx-auto border-t backdrop-blur-xl ${
+      className={`bottom-nav fixed bottom-0 left-0 right-0 z-40 max-w-[430px] mx-auto border-t backdrop-blur-xl ${
         dark
           ? "bg-[#0a0a0f]/95 border-white/10"
           : "bg-white/95 border-black/5"

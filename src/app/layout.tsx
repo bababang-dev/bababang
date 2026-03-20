@@ -17,6 +17,15 @@ const notoSansKR = Noto_Sans_KR({
 export const metadata: Metadata = {
   title: "BabaBang 아빠방 - 칭다오 한인 생활 AI",
   description: "칭다오 한인 생활 AI 플랫폼. 생활 정보, 맛집, 비자, 육아까지.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "아빠방",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
@@ -24,6 +33,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#0a0a0f",
 };
 
 export default function RootLayout({

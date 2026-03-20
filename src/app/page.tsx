@@ -138,7 +138,7 @@ export default function MainPage() {
 
   return (
     <div
-      className="max-w-[430px] mx-auto h-[100vh] overflow-hidden bg-[#0a0a0f] relative flex flex-col"
+      className="app-shell max-w-[430px] mx-auto overflow-hidden bg-[#0a0a0f] relative flex flex-col"
       style={{ maxWidth: 430 }}
     >
       <div

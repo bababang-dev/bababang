@@ -359,10 +359,10 @@ export function ChatPanel() {
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 28, stiffness: 300 }}
-            className="fixed top-0 right-0 bottom-0 z-50 w-[92%] max-w-mobile flex flex-col bg-baba-dark border-l border-white/10 shadow-glass-dark"
+            className="chat-container fixed top-0 right-0 z-50 w-[92%] max-w-mobile bg-baba-dark border-l border-white/10 shadow-glass-dark"
           >
             {/* 헤더: AI 아바타 + 토큰 + 닫기 */}
-            <div className="flex items-center justify-between p-4 border-b border-white/10">
+            <div className="flex shrink-0 items-center justify-between p-4 border-b border-white/10 pt-[max(1rem,env(safe-area-inset-top,0px))]">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent/70 flex items-center justify-center">
                   <Sparkles className="w-5 h-5 text-white" />
@@ -394,7 +394,7 @@ export function ChatPanel() {
             {/* 메시지 영역: AI 왼쪽 하단 각짐, 유저 오른쪽 하단 각짐, 새 메시지 scale */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin"
+              className="chat-messages p-4 space-y-4 scrollbar-thin"
             >
               <AnimatePresence>
                 {chatMessages.map((msg, i) => {
@@ -694,7 +694,7 @@ export function ChatPanel() {
             </div>
 
             {/* 퀵액션 가로 스크롤 */}
-            <div className="px-4 py-2 overflow-x-auto flex gap-2 scrollbar-thin border-t border-white/5">
+            <div className="shrink-0 px-4 py-2 overflow-x-auto flex gap-2 scrollbar-thin border-t border-white/5">
               {quickPrompts.map((key) => (
                 <button
                   key={key}
@@ -709,7 +709,7 @@ export function ChatPanel() {
 
             {/* 일일 한도 도달 시 업그레이드 안내 */}
             {atDailyLimit && (
-              <div className="px-4 py-2 border-t border-white/5 flex justify-center">
+              <div className="shrink-0 px-4 py-2 border-t border-white/5 flex justify-center">
                 <motion.button
                   type="button"
                   onClick={() => setMembershipOpen(true)}
@@ -721,8 +721,8 @@ export function ChatPanel() {
               </div>
             )}
 
-            {/* 입력창 + 전송 */}
-            <div className="p-4 border-t border-white/10 flex gap-2">
+            {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
+            <div className="chat-input-area border-t border-white/10 flex gap-2 px-4 pt-3">
               <input
                 type="text"
                 value={input}
@@ -742,7 +742,12 @@ export function ChatPanel() {
             </div>
           </motion.aside>
           {toast && (
-            <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[80] bg-black/80 text-white text-xs px-3 py-2 rounded-full">
+            <div
+              className="fixed left-1/2 -translate-x-1/2 z-[80] bg-black/80 text-white text-xs px-3 py-2 rounded-full max-w-[90%] text-center"
+              style={{
+                bottom: "max(5.5rem, calc(env(safe-area-inset-bottom, 0px) + 3rem))",
+              }}
+            >
               {toast}
             </div>
           )}

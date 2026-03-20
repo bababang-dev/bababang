@@ -11,10 +11,12 @@ export function FloatingSecondaryFAB() {
   const openWritePost = useStore((s) => s.openWritePost);
   const openPromotionModal = useStore((s) => s.openPromotionModal);
   const requireLogin = useStore((s) => s.requireLogin);
+  const chatOpen = useStore((s) => s.chatOpen);
 
   const showCommunity = activeTab === "community";
   const showPromotion = activeTab === "recommend" && recommendSubTab === "promo";
 
+  if (chatOpen) return null;
   if (!showCommunity && !showPromotion) return null;
 
   return (

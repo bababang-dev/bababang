@@ -1,0 +1,14 @@
+{
+  "name": "BabaBang - 아빠방",
+  "short_name": "아빠방",
+  "description": "칭다오 한인 생활 플랫폼",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#6c5ce7",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
