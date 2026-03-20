@@ -27,6 +27,10 @@ export function PostCard({
   const time = lang === "zh" ? post.timeZh : post.time;
   const content = lang === "zh" ? post.contentZh : post.content;
   const isChineseText = /[\u4e00-\u9fff]/.test(content);
+  const imageUrls = post.images
+    ? post.images.split(",").map((u) => u.trim()).filter(Boolean)
+    : [];
+  const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
 
   const onTranslate = async (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -97,6 +101,45 @@ export function PostCard({
           {category}
         </span>
       </div>
+      {imageUrls.length > 0 && (
+        <div
+          className={`mt-2 ${imageUrls.length === 1 ? "" : "flex gap-2 overflow-x-auto pb-1 scrollbar-thin"}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {imageUrls.length === 1 ? (
+            <div className="relative w-full rounded-lg overflow-hidden max-h-48 bg-black/5">
+              {isVideoUrl(imageUrls[0]) ? (
+                <video src={imageUrls[0]} className="w-full max-h-48 object-cover" muted playsInline />
+              ) : (
+                <img src={imageUrls[0]} alt="" className="w-full max-h-48 object-cover" />
+              )}
+              {isVideoUrl(imageUrls[0]) && (
+                <span className="absolute inset-0 flex items-center justify-center text-3xl pointer-events-none">
+                  ▶️
+                </span>
+              )}
+            </div>
+          ) : (
+            imageUrls.map((url) => (
+              <div
+                key={url}
+                className="relative w-[150px] h-[100px] flex-shrink-0 rounded-lg overflow-hidden bg-black/5"
+              >
+                {isVideoUrl(url) ? (
+                  <video src={url} className="w-full h-full object-cover" muted playsInline />
+                ) : (
+                  <img src={url} alt="" className="w-full h-full object-cover" />
+                )}
+                {isVideoUrl(url) && (
+                  <span className="absolute inset-0 flex items-center justify-center text-2xl pointer-events-none">
+                    ▶️
+                  </span>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
       <h3
         className={`font-outfit font-bold mt-2 line-clamp-1 text-base ${
           dark ? "text-white" : "text-black"

@@ -57,6 +57,10 @@ export function mapDbRowToPost(row: Record<string, unknown>): Post {
     contentZh: content,
     tags: tagsArr,
     tagsZh: tagsArr,
+    images:
+      row.images != null && String(row.images).trim() !== ""
+        ? String(row.images)
+        : undefined,
   };
 }
 

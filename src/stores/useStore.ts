@@ -74,6 +74,21 @@ interface AppState {
   incrementQuestion: () => void;
   canAskQuestion: () => boolean;
   deductToken: () => void;
+
+  /** 커뮤니티 목록 강제 새로고침 (글 작성 후 등) */
+  postsRefreshTrigger: number;
+  triggerPostsRefresh: () => void;
+
+  /** 업체 홍보 등록 모달 */
+  promotionModalOpen: boolean;
+  openPromotionModal: () => void;
+  closePromotionModal: () => void;
+  promotionsRefreshTrigger: number;
+  triggerPromotionsRefresh: () => void;
+
+  /** 추천 탭 서브: 업체 홍보 FAB 표시용 */
+  recommendSubTab: "places" | "promo";
+  setRecommendSubTab: (t: "places" | "promo") => void;
 }
 
 function todayStr() {
@@ -204,4 +219,18 @@ export const useStore = create<AppState>((set, get) => ({
       const next = Math.max(0, s.user.tokens - 1);
       return { user: { ...s.user, tokens: next } };
     }),
+
+  postsRefreshTrigger: 0,
+  triggerPostsRefresh: () =>
+    set((s) => ({ postsRefreshTrigger: s.postsRefreshTrigger + 1 })),
+
+  promotionModalOpen: false,
+  openPromotionModal: () => set({ promotionModalOpen: true }),
+  closePromotionModal: () => set({ promotionModalOpen: false }),
+  promotionsRefreshTrigger: 0,
+  triggerPromotionsRefresh: () =>
+    set((s) => ({ promotionsRefreshTrigger: s.promotionsRefreshTrigger + 1 })),
+
+  recommendSubTab: "places",
+  setRecommendSubTab: (t) => set({ recommendSubTab: t }),
 }));

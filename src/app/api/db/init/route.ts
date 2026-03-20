@@ -124,6 +124,45 @@ export async function GET() {
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
 
+    // posts.images (기존 DB 호환)
+    try {
+      await conn.query("ALTER TABLE posts ADD COLUMN images TEXT DEFAULT NULL");
+    } catch {
+      /* 이미 있음 */
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS promotions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
+        category ENUM('restaurant','wholesale','realestate','education','medical','trade','beauty') NOT NULL,
+        business_name VARCHAR(100) NOT NULL,
+        business_name_zh VARCHAR(100),
+        address VARCHAR(200),
+        phone VARCHAR(50),
+        wechat VARCHAR(50),
+        description TEXT,
+        images TEXT,
+        template_data JSON,
+        views INT DEFAULT 0,
+        status ENUM('active','inactive','pending') DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    try {
+      await conn.query(
+        "ALTER TABLE promotions ADD COLUMN IF NOT EXISTS tags VARCHAR(500) DEFAULT NULL"
+      );
+    } catch {
+      try {
+        await conn.query("ALTER TABLE promotions ADD COLUMN tags VARCHAR(500) DEFAULT NULL");
+      } catch {
+        /* 이미 있음 */
+      }
+    }
+
     // 테스트 유저 생성
     await conn.query(`
       INSERT IGNORE INTO users (id, nickname, email, avatar, plan, tokens)

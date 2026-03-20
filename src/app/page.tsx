@@ -6,6 +6,7 @@ import { useStore } from "@/stores/useStore";
 import { mockUser } from "@/lib/mockData";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { FloatingAIButton } from "@/components/layout/FloatingAIButton";
+import { FloatingSecondaryFAB } from "@/components/layout/FloatingSecondaryFAB";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { HomePage } from "@/components/pages/HomePage";
 import { CommunityPage } from "@/components/pages/CommunityPage";
@@ -17,6 +18,7 @@ import { PostDetail } from "@/components/modals/PostDetail";
 import { PlaceDetail } from "@/components/modals/PlaceDetail";
 import { MembershipModal } from "@/components/modals/MembershipModal";
 import { WritePostModal } from "@/components/modals/WritePostModal";
+import { WritePromotionModal } from "@/components/modals/WritePromotionModal";
 import type { TabKey } from "@/types";
 
 const pages: Record<TabKey, React.ReactNode> = {
@@ -30,6 +32,7 @@ const pages: Record<TabKey, React.ReactNode> = {
 
 export default function MainPage() {
   const activeTab = useStore((s) => s.activeTab);
+  const setRecommendSubTab = useStore((s) => s.setRecommendSubTab);
   const detailView = useStore((s) => s.detailView);
   const membershipOpen = useStore((s) => s.membershipOpen);
   const setUser = useStore((s) => s.setUser);
@@ -54,6 +57,12 @@ export default function MainPage() {
     if (scrollEl) scrollEl.scrollTop = 0;
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== "recommend") {
+      setRecommendSubTab("places");
+    }
+  }, [activeTab, setRecommendSubTab]);
+
   const isLightTab = ["bookmark", "community", "recommend"].includes(activeTab);
 
   return (
@@ -77,11 +86,14 @@ export default function MainPage() {
 
       <BottomNav />
       <FloatingAIButton />
+      <FloatingSecondaryFAB />
 
       <ChatPanel />
 
       <AnimatePresence>
-        {detailView?.startsWith("p") && <PostDetail key="post-detail" />}
+        {detailView && !detailView.startsWith("pl") && (
+          <PostDetail key="post-detail" />
+        )}
       </AnimatePresence>
       <AnimatePresence>
         {detailView?.startsWith("pl") && <PlaceDetail key="place-detail" />}
@@ -90,6 +102,7 @@ export default function MainPage() {
         {membershipOpen && <MembershipModal key="membership" />}
       </AnimatePresence>
       <WritePostModal />
+      <WritePromotionModal />
     </div>
   );
 }

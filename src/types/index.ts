@@ -31,6 +31,8 @@ export interface Post {
   contentZh: string;
   tags: string[];
   tagsZh: string[];
+  /** 쉼표로 구분된 이미지/영상 URL (OSS) */
+  images?: string;
 }
 
 // 장소

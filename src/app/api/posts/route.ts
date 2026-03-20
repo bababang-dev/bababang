@@ -36,12 +36,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { userId, category, title, content, tags } = body as {
+    const { userId, category, title, content, tags, images } = body as {
       userId?: number;
       category?: string;
       title?: string;
       content?: string;
       tags?: string;
+      images?: string;
     };
 
     // AI 자동 태그 (태그가 없으면 DeepSeek으로 생성)
@@ -78,8 +79,8 @@ export async function POST(request: Request) {
     }
 
     const [result] = await pool.query(
-      "INSERT INTO posts (user_id, category, title, content, tags) VALUES (?, ?, ?, ?, ?)",
-      [userId || 1, category, title, content, finalTags ?? ""]
+      "INSERT INTO posts (user_id, category, title, content, tags, images) VALUES (?, ?, ?, ?, ?, ?)",
+      [userId || 1, category, title, content, finalTags ?? "", images ?? null]
     );
 
     const header = result as ResultSetHeader;

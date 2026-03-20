@@ -12,9 +12,10 @@ export function FloatingAIButton() {
       <motion.button
         type="button"
         onClick={toggleChat}
-        className="absolute right-4 rounded-full flex items-center justify-center animate-glow pointer-events-auto"
+        className="absolute rounded-full flex items-center justify-center animate-glow pointer-events-auto"
         style={{
           bottom: 88,
+          right: 16,
           width: 56,
           height: 56,
           background: "linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%)",

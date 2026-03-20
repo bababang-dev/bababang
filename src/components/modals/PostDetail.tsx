@@ -9,8 +9,8 @@ export function PostDetail() {
   const { detailView, setDetailView, lang, posts } = useStore();
   const [translated, setTranslated] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  const postId = detailView && detailView.startsWith("p") ? detailView : null;
-  const post = postId ? posts.find((p) => p.id === postId) : null;
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const post = detailView ? posts.find((p) => p.id === detailView) : null;
 
   if (!post) return null;
 
@@ -20,6 +20,10 @@ export function PostDetail() {
   const content = lang === "zh" ? post.contentZh : post.content;
   const tags = lang === "zh" ? post.tagsZh : post.tags;
   const isChineseText = /[\u4e00-\u9fff]/.test(content);
+  const imageUrls = post.images
+    ? post.images.split(",").map((u) => u.trim()).filter(Boolean)
+    : [];
+  const isVideoUrl = (url: string) => /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
 
   const onTranslate = async () => {
     if (translated || isTranslating) return;
@@ -68,6 +72,34 @@ export function PostDetail() {
           </motion.button>
         </div>
         <div className="overflow-y-auto p-4 scrollbar-thin">
+          {imageUrls.length > 0 && (
+            <div className="flex flex-col gap-2 mb-4">
+              {imageUrls.map((url) => (
+                <button
+                  key={url}
+                  type="button"
+                  className="relative w-full rounded-xl overflow-hidden bg-black/5 text-left"
+                  onClick={() => setLightbox(url)}
+                >
+                  {isVideoUrl(url) ? (
+                    <>
+                      <video
+                        src={url}
+                        className="w-full max-h-[280px] object-cover pointer-events-none"
+                        muted
+                        playsInline
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center text-4xl pointer-events-none">
+                        ▶️
+                      </span>
+                    </>
+                  ) : (
+                    <img src={url} alt="" className="w-full max-h-[280px] object-cover" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
           <h2 className="font-outfit text-lg font-semibold">{title}</h2>
           <div className="flex items-center gap-2 mt-2 text-sm text-black/60">
             <span>{post.author}</span>
@@ -115,6 +147,38 @@ export function PostDetail() {
           )}
         </div>
       </motion.div>
+      {lightbox && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-[90] bg-black/95 flex items-center justify-center p-4 max-w-mobile mx-auto"
+          onClick={() => setLightbox(null)}
+        >
+          {isVideoUrl(lightbox) ? (
+            <video
+              src={lightbox}
+              controls
+              autoPlay
+              className="max-w-full max-h-[85vh] object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={lightbox}
+              alt=""
+              className="max-w-full max-h-[85vh] object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+          <button
+            type="button"
+            className="absolute top-4 right-4 text-white text-2xl p-2"
+            onClick={() => setLightbox(null)}
+          >
+            ✕
+          </button>
+        </motion.div>
+      )}
     </>
   );
 }

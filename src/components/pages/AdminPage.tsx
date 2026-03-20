@@ -12,9 +12,26 @@ function shopKey(shop: ShopEntry): string {
   return `${shop.zh}::${shop.koreanNames[0] ?? ""}`;
 }
 
+type ApiReportRow = {
+  id?: number;
+  shop_name: string;
+  report_type: string;
+  detail?: string | null;
+  created_at?: string;
+};
+
+function reportTypeLabel(t: string): string {
+  if (t === "closed") return "폐업/없어짐";
+  if (t === "wrong_info") return "정보 오류";
+  if (t === "other") return "기타";
+  return t;
+}
+
 export function AdminPage() {
-  const { chatFeedback, reports, questionStats, chatMessages } = useStore();
+  const { chatFeedback, questionStats, chatMessages } = useStore();
   const [tab, setTab] = useState<"shops" | "reports" | "feedback" | "stats">("shops");
+  const [apiReports, setApiReports] = useState<ApiReportRow[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
   const [localShops, setLocalShops] = useState<ShopEntry[]>([]);
   const [deletedKeys, setDeletedKeys] = useState<string[]>([]);
   const [doneReportIds, setDoneReportIds] = useState<number[]>([]);
@@ -40,6 +57,30 @@ export function AdminPage() {
       setDeletedKeys([]);
     }
   }, []);
+
+  useEffect(() => {
+    if (tab !== "reports") return;
+    let cancelled = false;
+    (async () => {
+      setReportsLoading(true);
+      try {
+        const res = await fetch("/api/reports");
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && Array.isArray(data.reports)) {
+          setApiReports(data.reports as ApiReportRow[]);
+        } else {
+          setApiReports([]);
+        }
+      } catch {
+        if (!cancelled) setApiReports([]);
+      }
+      if (!cancelled) setReportsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
 
   const mergedShops = useMemo(() => {
     return [...shopDict, ...localShops].filter((shop) => !deletedKeys.includes(shopKey(shop)));
@@ -165,21 +206,38 @@ export function AdminPage() {
 
         {tab === "reports" && (
           <div className="space-y-2 mt-3">
-            {reports.map((r, idx) => (
-              <div key={`${r.shopName}-${idx}`} className="glass-dark rounded-2xl p-3 flex items-center justify-between">
-                <div>
-                  <p className="font-medium">{r.shopName}</p>
-                  <p className="text-xs text-white/60">{r.reason} · {r.date}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDoneReportIds((s) => [...s, idx])}
-                  className="text-xs px-2 py-1 rounded bg-accent/30 text-accent"
-                >
-                  {doneReportIds.includes(idx) ? "완료됨" : "처리완료"}
-                </button>
-              </div>
-            ))}
+            {reportsLoading ? (
+              <p className="text-sm text-white/50 py-4 text-center">불러오는 중...</p>
+            ) : apiReports.length === 0 ? (
+              <p className="text-sm text-white/50 py-4 text-center">신고 내역이 없습니다.</p>
+            ) : (
+              apiReports.map((r, idx) => {
+                const rid = r.id ?? idx;
+                return (
+                  <div key={rid} className="glass-dark rounded-2xl p-3 flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium truncate">{r.shop_name}</p>
+                      <p className="text-xs text-white/60 mt-1">
+                        {reportTypeLabel(r.report_type)}
+                        {r.detail ? ` · ${r.detail}` : ""}
+                      </p>
+                      {r.created_at && (
+                        <p className="text-[10px] text-white/40 mt-1">
+                          {new Date(r.created_at).toLocaleString("ko-KR")}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDoneReportIds((s) => [...s, rid as number])}
+                      className="text-xs px-2 py-1 rounded bg-accent/30 text-accent flex-shrink-0"
+                    >
+                      {doneReportIds.includes(rid as number) ? "완료됨" : "처리완료"}
+                    </button>
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
 

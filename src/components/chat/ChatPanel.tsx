@@ -7,6 +7,7 @@ import { useStore } from "@/stores/useStore";
 import { i18n } from "@/lib/i18n";
 import type { ShopEntry } from "@/lib/shopDict";
 import type { ChatMessage } from "@/types";
+import { ReportModal } from "@/components/modals/ReportModal";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -77,6 +78,9 @@ export function ChatPanel() {
     {}
   );
   const [reasonPickerFor, setReasonPickerFor] = useState<number | null>(null);
+  const [reportShop, setReportShop] = useState<
+    NonNullable<ChatMessage["recommendedShops"]>[number] | null
+  >(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const t = i18n[lang].chat;
   const tokens = user?.tokens ?? 0;
@@ -417,14 +421,29 @@ export function ChatPanel() {
                           >
                             <p className="text-[11px] text-white/50 px-1 mb-2">📍 추천 업체</p>
                             <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
-                              {msg.recommendedShops.map((shop) => (
-                                <button
-                                  key={shop.zh}
+                              {msg.recommendedShops.map((shop, si) => (
+                                <div
+                                  key={`${shop.zh}-${si}`}
+                                  className="relative w-[220px] flex-shrink-0"
+                                >
+                                  <button
+                                    type="button"
+                                    className="absolute top-1.5 right-1.5 z-10 text-[12px] leading-none p-1 rounded-md bg-black/40 hover:bg-black/55 border border-white/10"
+                                    aria-label="장소 신고"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setReportShop(shop);
+                                    }}
+                                  >
+                                    ⚠️
+                                  </button>
+                                  <button
                                   type="button"
                                   onClick={() =>
                                     sendMessage(`${shop.koreanName} 자세히 알려줘`)
                                   }
-                                  className="w-[220px] flex-shrink-0 text-left rounded-xl bg-white/10 px-3 py-2"
+                                  className="w-full text-left rounded-xl bg-white/10 px-3 py-2 pr-8"
                                 >
                                   <p className="text-sm font-semibold text-white">
                                     {shop.category.includes("맛집")
@@ -452,6 +471,7 @@ export function ChatPanel() {
                                     <p className="text-[11px] text-[#c9b8ff] mt-1.5">{shop.tip}</p>
                                   )}
                                 </button>
+                                </div>
                               ))}
                             </div>
                           </motion.div>
@@ -547,6 +567,16 @@ export function ChatPanel() {
               {toast}
             </div>
           )}
+          <ReportModal
+            open={!!reportShop}
+            onClose={() => setReportShop(null)}
+            shopDisplayName={
+              reportShop ? `${reportShop.koreanName} (${reportShop.zh})` : ""
+            }
+            onSubmitted={() =>
+              setToast("신고해주셔서 감사합니다! 확인 후 반영할게요.")
+            }
+          />
         </>
       )}
     </AnimatePresence>
