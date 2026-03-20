@@ -8,6 +8,7 @@ import { PlaceCard } from "@/components/cards/PlaceCard";
 import { mockPlaces } from "@/lib/mockData";
 import { i18n } from "@/lib/i18n";
 import { PromotionPage } from "@/components/pages/PromotionPage";
+import { trackActivity } from "@/lib/trackActivity";
 
 const categoryMap: Record<string, string[]> = {
   전체: [],
@@ -95,7 +96,10 @@ export function RecommendPage() {
                 <motion.button
                   key={value}
                   type="button"
-                  onClick={() => setFilter(value)}
+                  onClick={() => {
+                    if (value !== "전체") void trackActivity("click_category", value);
+                    setFilter(value);
+                  }}
                   className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium active:scale-[0.98] ${
                     filter === value
                       ? "bg-accent text-white"

@@ -14,6 +14,8 @@ export const i18n = {
       subtitle: "생활 정보부터 맛집·비자까지, 아빠방이 도와드릴게요.",
     },
     home: {
+      forYouTitle: "✨ 나를 위한 추천",
+      forYouGo: "보러가기 →",
       quickMenuTitle: "퀵 메뉴",
       hotPlaces: "핫플레이스",
       popularPosts: "인기 게시글",
@@ -150,6 +152,8 @@ export const i18n = {
       subtitle: "从生活信息到美食、签证，爸爸帮为您服务。",
     },
     home: {
+      forYouTitle: "✨ 为你推荐",
+      forYouGo: "去看看 →",
       quickMenuTitle: "快捷菜单",
       hotPlaces: "热门地点",
       popularPosts: "热门帖子",

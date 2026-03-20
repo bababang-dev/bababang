@@ -7,6 +7,7 @@ import { Header } from "@/components/layout/Header";
 import { PostCard } from "@/components/cards/PostCard";
 import { i18n } from "@/lib/i18n";
 import { mockPosts } from "@/lib/mockData";
+import { trackActivity } from "@/lib/trackActivity";
 import type { Post } from "@/types";
 
 const categoryKeys = [
@@ -140,7 +141,10 @@ export function CommunityPage() {
             <motion.button
               key={key}
               type="button"
-              onClick={() => setCategory(key)}
+              onClick={() => {
+                if (key !== "전체") void trackActivity("click_category", key);
+                setCategory(key);
+              }}
               className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium active:scale-[0.98] ${
                 category === key ? "bg-accent text-white" : "bg-white/80 text-black/70"
               }`}

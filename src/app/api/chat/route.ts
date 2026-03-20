@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { findShop, shopDict, type ShopEntry } from "@/lib/shopDict";
+import { findShop } from "@/lib/shopDict";
 import { findCategories } from "@/lib/categoryDict";
 
 function stripHtml(str: string): string {
@@ -82,14 +82,21 @@ async function crawlChinazoa(query: string): Promise<string[]> {
 }
 
 // ═══ 高德地图 검색 ═══
-async function amapSearch(keywords: string, city: string = "青岛"): Promise<Array<{ name: string; address: string; tel: string; rating: string; cost: string; type: string }>> {
+async function amapSearch(keywords: string, city: string = "青岛"): Promise<Array<{ name: string; address: string; tel: string; rating: string; cost: string; type: string; location: string }>> {
   try {
     const key = process.env.AMAP_API_KEY;
     if (!key) return [];
     const url = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(keywords)}&city=${encodeURIComponent(city)}&output=json&key=${key}&offset=30&extensions=all`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const data = (await res.json()) as {
-      pois?: Array<{ name?: string; address?: string; tel?: string; biz_ext?: { rating?: string; cost?: string }; type?: string }>;
+      pois?: Array<{
+        name?: string;
+        address?: string;
+        tel?: string;
+        location?: string;
+        biz_ext?: { rating?: string; cost?: string };
+        type?: string;
+      }>;
     };
     console.log("=== 高德 [" + keywords + "]: " + (data.pois?.length || 0) + "개 ===");
     return (data.pois || []).map((poi) => ({
@@ -99,6 +106,7 @@ async function amapSearch(keywords: string, city: string = "青岛"): Promise<Ar
       rating: poi.biz_ext?.rating ?? "",
       cost: poi.biz_ext?.cost ?? "",
       type: poi.type ?? "",
+      location: poi.location ?? "",
     }));
   } catch {
     return [];
@@ -146,7 +154,28 @@ async function fetchBlogContent(url: string): Promise<string> {
 }
 
 type NaverItem = { title: string; desc: string; source: string; link: string };
-type AmapPoi = { name: string; address: string; tel: string; rating: string; cost: string; type: string };
+type AmapPoi = {
+  name: string;
+  address: string;
+  tel: string;
+  rating: string;
+  cost: string;
+  type: string;
+  location: string;
+};
+
+function poiToRecommendedPayload(poi: AmapPoi) {
+  const parts = poi.location ? poi.location.split(",").map((s) => s.trim()) : [];
+  return {
+    name: poi.name,
+    address: poi.address,
+    tel: poi.tel,
+    rating: poi.rating,
+    cost: poi.cost,
+    lat: parts[1] ?? "",
+    lng: parts[0] ?? "",
+  };
+}
 
 function analyzeCollectedData(
   amapPois: AmapPoi[],
@@ -183,10 +212,6 @@ function analyzeCollectedData(
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 20);
 
-  const amapInfo = amapPois.map((poi) => {
-    return `${poi.name} | 주소: ${poi.address} | 평점: ${poi.rating || "없음"}/5 | 전화: ${poi.tel || "없음"} | 1인당: ${poi.cost ? poi.cost + "위안" : "없음"}`;
-  });
-
   let report = "";
 
   if (topMentions.length > 0) {
@@ -198,10 +223,10 @@ function analyzeCollectedData(
     report += "\n";
   }
 
-  if (amapInfo.length > 0) {
+  if (amapPois.length > 0) {
     report += "[高德地图 공식 정보 - 주소/전화/평점 정확]\n";
-    amapInfo.slice(0, 10).forEach((info, i) => {
-      report += `${i + 1}. ${info}\n`;
+    amapPois.slice(0, 10).forEach((poi, i) => {
+      report += `[P${i + 1}] ${poi.name} | 주소: ${poi.address} | 평점: ${poi.rating || "없음"}/5 | 전화: ${poi.tel || "없음"} | 1인당: ${poi.cost ? poi.cost + "위안" : "없음"}\n`;
     });
     report += "\n";
   }
@@ -224,54 +249,6 @@ function analyzeCollectedData(
   return report;
 }
 
-function uniqueByZh(list: ShopEntry[]): ShopEntry[] {
-  return list.filter((s, idx, arr) => arr.findIndex((x) => x.zh === s.zh) === idx);
-}
-
-function matchRecommendedShops(
-  userMessage: string,
-  aiContent: string,
-  extraShops: ShopEntry[]
-): ShopEntry[] {
-  const merged = uniqueByZh([...shopDict, ...extraShops]);
-  const text = `${userMessage} ${aiContent}`;
-  const result: ShopEntry[] = [];
-
-  // 1) 별명 매칭
-  merged.forEach((shop) => {
-    if (shop.koreanNames.some((name) => userMessage.includes(name)) || userMessage.includes(shop.zh)) {
-      result.push(shop);
-    }
-  });
-
-  // 2) 카테고리 매칭
-  const categoryKeywords: Record<string, string[]> = {
-    맛집: ["맛집", "식당", "밥", "술", "고기", "양꼬치"],
-    카페: ["카페", "커피", "디저트", "차"],
-    병원: ["병원", "의원", "진료", "치과", "응급"],
-    마트: ["마트", "장보기", "쇼핑", "식재료"],
-  };
-  Object.entries(categoryKeywords).forEach(([category, keys]) => {
-    if (keys.some((k) => userMessage.includes(k))) {
-      merged.filter((s) => s.category.includes(category)).forEach((s) => result.push(s));
-    }
-  });
-
-  // 3) 지역 매칭
-  merged.forEach((shop) => {
-    if (text.includes(shop.district)) result.push(shop);
-  });
-
-  // 4) AI 답변 가게명 매칭
-  merged.forEach((shop) => {
-    if (aiContent.includes(shop.zh) || shop.koreanNames.some((n) => aiContent.includes(n))) {
-      result.push(shop);
-    }
-  });
-
-  return uniqueByZh(result);
-}
-
 export async function POST(request: Request) {
   let body: { messages?: unknown; localShops?: unknown };
   try {
@@ -281,7 +258,6 @@ export async function POST(request: Request) {
   }
 
   const messages = body.messages as Array<{ role: string; content: string }>;
-  const localShops = (body.localShops ?? []) as ShopEntry[];
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
   }
@@ -375,6 +351,24 @@ export async function POST(request: Request) {
 
         send({ type: "status", content: `${totalSources}개 소스에서 분석 완료! 답변 생성중...` });
 
+        let userInterestsLine = "";
+        try {
+          const pool = (await import("@/lib/db")).default;
+          const [prefRows] = await pool.query(
+            `SELECT category, COUNT(*) as cnt FROM user_activity WHERE user_id = ? AND category IS NOT NULL AND created_at > DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY category ORDER BY cnt DESC LIMIT 3`,
+            [1]
+          );
+          const rows = prefRows as Array<{ category: string }>;
+          if (Array.isArray(rows) && rows.length > 0) {
+            userInterestsLine =
+              "\n\n이 유저는 " +
+              rows.map((p) => p.category).join(", ") +
+              " 에 관심이 많아. 가능하면 이 분야와 연관된 정보를 우선 알려줘.";
+          }
+        } catch (e) {
+          console.error("user_activity prefs:", e);
+        }
+
         const systemPrompt = `너는 BabaBang(아빠방) AI야. 칭다오에 사는 한국인들을 도와주는 친근한 생활 도우미.
 
 말투:
@@ -409,7 +403,16 @@ export async function POST(request: Request) {
 - 자연스럽게 내가 다 아는 것처럼 말해
 - 모르면 "이건 현지에서 한번 확인해보세요~" 정도로
 - 마지막에 출처나 분석 결과 언급하지 마
-- 마지막은 "궁금한 거 더 있으면 편하게 물어보세요~" 같은 가벼운 마무리`;
+- 마지막은 "궁금한 거 더 있으면 편하게 물어보세요~" 같은 가벼운 마무리
+- 맛집이나 장소를 추천할 때는 '길찾기나 택시가 필요하면 말씀해주세요~' 같은 안내를 자연스럽게 한 문장 넣어줘${userInterestsLine}`;
+
+        const recommendFooter =
+          searchContext && uniquePois.length > 0
+            ? `
+
+답변 맨 마지막 줄에 반드시 이 형식으로 추천 장소 번호를 적어줘: [RECOMMEND:P1,P3,P5]
+이 줄은 유저에게 안 보이니까 걱정 마. 반드시 포함해줘.`
+            : "";
 
         const userContent = searchContext
           ? `질문: ${userMessage}
@@ -428,7 +431,7 @@ ${locationContext}${shopContext}
 7. 마크다운 문법 절대 쓰지마
 8. 줄바꿈 많이 넣어서 읽기 쉽게
 
-${searchContext}`
+${searchContext}${recommendFooter}`
           : userMessage;
 
         const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
@@ -511,21 +514,26 @@ ${searchContext}`
           .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
           .trim();
 
-        const matchedShops = matchRecommendedShops(userMessage, fullContent, localShops);
-        const recommendedShops = matchedShops.slice(0, 3).map((shop) => ({
-          zh: shop.zh,
-          koreanName: shop.koreanNames[0],
-          category: shop.category,
-          district: shop.district,
-          description: shop.description || "",
-          recommendMenu: shop.recommendMenu || "",
-          priceRange: shop.priceRange || "",
-          tip: shop.tip || "",
-        }));
+        const indexedPois = uniquePois.slice(0, 10);
+        const recommendMatch = fullContent.match(/\[RECOMMEND:([^\]]+)\]/);
+        let recommendedIndices: number[] = [];
+        if (recommendMatch) {
+          recommendedIndices = recommendMatch[1]
+            .split(",")
+            .map((p) => parseInt(p.replace(/^P/i, "").trim(), 10))
+            .filter((n) => !isNaN(n) && n >= 1 && n <= indexedPois.length);
+        }
+        const finalPois =
+          recommendedIndices.length > 0
+            ? recommendedIndices.map((i) => indexedPois[i - 1]).filter(Boolean).slice(0, 5)
+            : indexedPois.slice(0, 5);
+
+        const fullContentForUser = fullContent.replace(/\n?\[RECOMMEND:[^\]]+\]\s*/g, "").trim();
+        const recommendedShops = finalPois.map((poi) => poiToRecommendedPayload(poi));
 
         send({
           type: "done",
-          content: fullContent,
+          content: fullContentForUser,
           meta: { totalSources },
           recommendedShops,
         });
@@ -535,7 +543,7 @@ ${searchContext}`
           await pool.query("INSERT INTO chat_history (user_id, user_message, ai_response) VALUES (?, ?, ?)", [
             1,
             userMessage,
-            fullContent,
+            fullContentForUser,
           ]);
         } catch (dbErr) {
           console.error("chat_history insert:", dbErr);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useStore } from "@/stores/useStore";
 import { mockUser } from "@/lib/mockData";
@@ -19,6 +19,8 @@ import { PlaceDetail } from "@/components/modals/PlaceDetail";
 import { MembershipModal } from "@/components/modals/MembershipModal";
 import { WritePostModal } from "@/components/modals/WritePostModal";
 import { WritePromotionModal } from "@/components/modals/WritePromotionModal";
+import { MapActionSheet } from "@/components/modals/MapActionSheet";
+import { getUserLocation } from "@/lib/geolocation";
 import type { TabKey } from "@/types";
 
 const pages: Record<TabKey, React.ReactNode> = {
@@ -38,6 +40,8 @@ export default function MainPage() {
   const setUser = useStore((s) => s.setUser);
   const user = useStore((s) => s.user);
   const setLang = useStore((s) => s.setLang);
+  const setUserLocation = useStore((s) => s.setUserLocation);
+  const [locationToast, setLocationToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) setUser(mockUser);
@@ -62,6 +66,40 @@ export default function MainPage() {
       setRecommendSubTab("places");
     }
   }, [activeTab, setRecommendSubTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const loc = await getUserLocation();
+      if (cancelled) return;
+      if (loc) {
+        setUserLocation(loc);
+        return;
+      }
+      if (typeof navigator === "undefined" || !navigator.geolocation) return;
+      try {
+        const perm = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+        if (
+          perm.state === "denied" &&
+          !sessionStorage.getItem("bababang-loc-denied-toast")
+        ) {
+          setLocationToast("위치 권한이 필요해요. 설정에서 허용해주세요");
+          sessionStorage.setItem("bababang-loc-denied-toast", "1");
+        }
+      } catch {
+        /* Permissions API 미지원 시 토스트 생략 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setUserLocation]);
+
+  useEffect(() => {
+    if (!locationToast) return;
+    const t = window.setTimeout(() => setLocationToast(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [locationToast]);
 
   const isLightTab = ["bookmark", "community", "recommend"].includes(activeTab);
 
@@ -103,6 +141,12 @@ export default function MainPage() {
       </AnimatePresence>
       <WritePostModal />
       <WritePromotionModal />
+      <MapActionSheet />
+      {locationToast && (
+        <div className="fixed bottom-28 left-1/2 z-[100] -translate-x-1/2 max-w-[90%] rounded-full bg-black/85 px-4 py-2 text-center text-xs text-white">
+          {locationToast}
+        </div>
+      )}
     </div>
   );
 }

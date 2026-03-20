@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Star, MapPin, Bookmark } from "lucide-react";
 import { useStore } from "@/stores/useStore";
+import { trackActivity } from "@/lib/trackActivity";
 import { i18n } from "@/lib/i18n";
 import type { Place } from "@/types";
 
@@ -47,7 +48,11 @@ export function PlaceCard({
       className={`rounded-2xl overflow-hidden border active:scale-[0.98] transition-transform ${
         dark ? "glass-card-dark" : "glass-light"
       } p-4 cursor-pointer`}
-      onClick={() => setDetailView(place.id)}
+      onClick={() => {
+        const tid = parseInt(String(place.id).replace(/\D/g, ""), 10) || undefined;
+        void trackActivity("view_place", place.category, place.name, tid);
+        setDetailView(place.id);
+      }}
       whileTap={{ scale: 0.98 }}
     >
       <div className="flex gap-3">
@@ -72,6 +77,10 @@ export function PlaceCard({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
+                if (!isBookmarked) {
+                  const tid = parseInt(String(place.id).replace(/\D/g, ""), 10) || undefined;
+                  void trackActivity("bookmark", "place", place.name, tid);
+                }
                 togglePlaceBookmark(place.id);
               }}
               className="ml-auto p-1 rounded-lg hover:bg-black/5"

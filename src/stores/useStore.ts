@@ -89,6 +89,26 @@ interface AppState {
   /** 추천 탭 서브: 업체 홍보 FAB 표시용 */
   recommendSubTab: "places" | "promo";
   setRecommendSubTab: (t: "places" | "promo") => void;
+
+  /** 길찾기 / 지도 액션시트 */
+  mapActionSheet: {
+    open: boolean;
+    destLat: string;
+    destLng: string;
+    destName: string;
+    destAddress: string;
+  } | null;
+  openMapActionSheet: (
+    destLat: string,
+    destLng: string,
+    destName: string,
+    destAddress: string
+  ) => void;
+  closeMapActionSheet: () => void;
+
+  /** 브라우저 GPS (앱 최초 / 길찾기용) */
+  userLocation: { lat: number; lng: number } | null;
+  setUserLocation: (loc: { lat: number; lng: number } | null) => void;
 }
 
 function todayStr() {
@@ -233,4 +253,20 @@ export const useStore = create<AppState>((set, get) => ({
 
   recommendSubTab: "places",
   setRecommendSubTab: (t) => set({ recommendSubTab: t }),
+
+  mapActionSheet: null,
+  openMapActionSheet: (destLat, destLng, destName, destAddress) =>
+    set({
+      mapActionSheet: {
+        open: true,
+        destLat,
+        destLng,
+        destName,
+        destAddress,
+      },
+    }),
+  closeMapActionSheet: () => set({ mapActionSheet: null }),
+
+  userLocation: null,
+  setUserLocation: (loc) => set({ userLocation: loc }),
 }));

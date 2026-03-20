@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { MessageCircle, Eye, Heart, Bookmark } from "lucide-react";
 import { useState, type MouseEvent } from "react";
 import { useStore } from "@/stores/useStore";
+import { trackActivity } from "@/lib/trackActivity";
 import type { Post } from "@/types";
 
 interface PostCardProps {
@@ -67,7 +68,14 @@ export function PostCard({
         staggerDelay != null ? { delay: staggerDelay, duration: 0.25 } : {}
       }
       className={`${cardClass} p-4 cursor-pointer active:scale-[0.98] transition-transform`}
-      onClick={() => setDetailView(post.id)}
+      onClick={() => {
+        const tid =
+          typeof post.id === "string" && /^\d+$/.test(post.id)
+            ? parseInt(post.id, 10)
+            : parseInt(String(post.id).replace(/\D/g, ""), 10) || undefined;
+        void trackActivity("view_post", post.category, post.title, tid);
+        setDetailView(post.id);
+      }}
       whileTap={{ scale: 0.98 }}
     >
       {/* 상단: 좌측 아바타+작성자+시간 / 우측 카테고리 배지 */}
@@ -192,6 +200,13 @@ export function PostCard({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            if (!isBookmarked) {
+              const tid =
+                typeof post.id === "string" && /^\d+$/.test(post.id)
+                  ? parseInt(post.id, 10)
+                  : parseInt(String(post.id).replace(/\D/g, ""), 10) || undefined;
+              void trackActivity("bookmark", "post", post.title, tid);
+            }
             togglePostBookmark(post.id);
           }}
           className="ml-auto p-1 rounded-lg hover:bg-black/5"

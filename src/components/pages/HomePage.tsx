@@ -7,8 +7,67 @@ import { useStore } from "@/stores/useStore";
 import { i18n } from "@/lib/i18n";
 import { mockPosts, mockPlaces } from "@/lib/mockData";
 import { Header } from "@/components/layout/Header";
+import { trackActivity } from "@/lib/trackActivity";
 import { PostCard } from "@/components/cards/PostCard";
-import type { Place } from "@/types";
+import type { Place, Post } from "@/types";
+
+type QuickKey = "foodShort" | "visaShort" | "hospitalShort" | "realtyShort" | "baby";
+
+function mapApiPostRow(p: Record<string, unknown>): Post {
+  const category = String(p.category ?? "");
+  const tagsStr = p.tags != null ? String(p.tags) : "";
+  const tagsArr = tagsStr
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return {
+    id: String(p.id),
+    category,
+    categoryZh: category,
+    title: String(p.title ?? ""),
+    titleZh: String(p.title ?? ""),
+    content: String(p.content ?? ""),
+    contentZh: String(p.content ?? ""),
+    author: String((p as { nickname?: string }).nickname || "익명"),
+    avatar: "👤",
+    time: "방금 전",
+    timeZh: "刚刚",
+    views: Number(p.views ?? 0),
+    comments: Number(p.comments_count ?? 0),
+    likes: Number(p.likes ?? 0),
+    tags: tagsArr,
+    tagsZh: tagsArr,
+    images: p.images != null ? String(p.images) : undefined,
+  };
+}
+
+function buildQuickMenuItems(
+  topCategories: { name: string }[]
+): { key: QuickKey; emoji: string }[] {
+  const base: { key: QuickKey; emoji: string }[] = [
+    { key: "foodShort", emoji: "🍜" },
+    { key: "visaShort", emoji: "📋" },
+    { key: "hospitalShort", emoji: "🏥" },
+    { key: "realtyShort", emoji: "🏠" },
+  ];
+  const pri: Partial<Record<QuickKey, number>> = {};
+  topCategories.forEach((c, idx) => {
+    const w = 8 - idx;
+    const n = c.name;
+    if (/맛집|美食|food/i.test(n)) pri.foodShort = (pri.foodShort ?? 0) + w;
+    if (/비자|签证|visa/i.test(n)) pri.visaShort = (pri.visaShort ?? 0) + w;
+    if (/병원|의료|医院|医疗/i.test(n)) pri.hospitalShort = (pri.hospitalShort ?? 0) + w;
+    if (/부동산|房产/i.test(n)) pri.realtyShort = (pri.realtyShort ?? 0) + w;
+    if (/육아|교육|育儿|教育/i.test(n)) pri.baby = (pri.baby ?? 0) + w;
+  });
+  const pool: { key: QuickKey; emoji: string }[] =
+    (pri.baby ?? 0) > 0
+      ? [{ key: "baby", emoji: "📚" }, ...base]
+      : base;
+  return [...pool]
+    .sort((a, b) => (pri[b.key] ?? 0) - (pri[a.key] ?? 0))
+    .slice(0, 4);
+}
 
 const placeEmoji: Record<string, string> = {
   관광: "🍺",
@@ -59,7 +118,11 @@ function HotPlaceCard({
   return (
     <motion.article
       layout
-      onClick={() => setDetailView(place.id)}
+      onClick={() => {
+        const tid = parseInt(String(place.id).replace(/\D/g, ""), 10) || undefined;
+        void trackActivity("view_place", place.category, place.name, tid);
+        setDetailView(place.id);
+      }}
       className="glass-dark flex-shrink-0 w-[200px] p-4 rounded-2xl cursor-pointer active:scale-[0.98] transition-transform"
       whileTap={{ scale: 0.98 }}
     >
@@ -84,7 +147,7 @@ function HotPlaceCard({
 }
 
 export function HomePage() {
-  const { lang, setChatOpen, setActiveTab } = useStore();
+  const { lang, setChatOpen, setActiveTab, setDetailView } = useStore();
   const t = i18n[lang];
   const hotPlaces = mockPlaces.slice(0, 4);
   const popularPosts = mockPosts.slice(0, 3);
@@ -97,6 +160,11 @@ export function HomePage() {
     cnyToKrw: number;
     usdToKrw: number;
   } | null>(null);
+  const [personalization, setPersonalization] = useState<{
+    topCategories: { name: string; count: number }[];
+    recentQuestions: string[];
+  }>({ topCategories: [], recentQuestions: [] });
+  const [forYouPost, setForYouPost] = useState<Post | null>(null);
 
   const DEFAULT_CNY_KRW = 190;
   const DEFAULT_USD_KRW = 1386;
@@ -144,12 +212,49 @@ export function HomePage() {
     load();
   }, []);
 
-  const quickActions = [
-    { emoji: "🍜", key: "foodShort" as const },
-    { emoji: "📋", key: "visaShort" as const },
-    { emoji: "🏥", key: "hospitalShort" as const },
-    { emoji: "🏠", key: "realtyShort" as const },
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/activity?userId=1");
+        const data = (await res.json()) as {
+          topCategories?: { name: string; count: number }[];
+          recentQuestions?: string[];
+        };
+        if (cancelled) return;
+        setPersonalization({
+          topCategories: data.topCategories ?? [],
+          recentQuestions: data.recentQuestions ?? [],
+        });
+        const topCat = data.topCategories?.[0]?.name;
+        if (topCat) {
+          try {
+            const pr = await fetch(
+              "/api/posts?category=" + encodeURIComponent(topCat)
+            );
+            const pd = await pr.json();
+            if (!cancelled && pd.posts?.[0]) {
+              setForYouPost(mapApiPostRow(pd.posts[0] as Record<string, unknown>));
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        if (!cancelled)
+          setPersonalization({ topCategories: [], recentQuestions: [] });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const quickActions = buildQuickMenuItems(
+    personalization?.topCategories?.length
+      ? personalization.topCategories
+      : []
+  );
 
   return (
     <div className="min-h-full bg-[#0a0a0f] text-white pb-24 scrollbar-thin">
@@ -382,7 +487,9 @@ export function HomePage() {
               <motion.button
                 key={key}
                 type="button"
-                onClick={() => setChatOpen(true)}
+                onClick={() => {
+                  setChatOpen(true);
+                }}
                 className="glass-dark p-4 flex flex-col items-center gap-2 rounded-2xl border border-white/10 active:scale-[0.98]"
                 style={{
                   background: "rgba(255,255,255,0.06)",
@@ -427,6 +534,126 @@ export function HomePage() {
                 reviewCountLabel={t.common.reviewCount}
               />
             ))}
+          </div>
+        </motion.section>
+
+        {/* 나를 위한 추천 */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.22 }}
+          className="mt-8"
+        >
+          <h3 className="font-outfit font-semibold text-sm text-white/80 mb-3">
+            {t.home.forYouTitle}
+          </h3>
+          <div className="flex gap-3 overflow-x-auto pb-2 hide-scrollbar -mx-4 px-4">
+            {personalization.topCategories.length > 0 ||
+            personalization.recentQuestions.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (forYouPost) setDetailView(forYouPost.id);
+                    else setActiveTab("community");
+                  }}
+                  className="glass-dark flex-shrink-0 w-[250px] p-4 rounded-2xl border border-white/10 text-left active:scale-[0.98] transition-transform"
+                  style={{ padding: 16 }}
+                >
+                  <p className="text-sm font-bold text-white leading-snug">
+                    {personalization.topCategories[0]?.name
+                      ? `「${personalization.topCategories[0].name}」을(를) 자주 보셨네요!`
+                      : "맞춤 추천"}
+                  </p>
+                  <p className="text-xs text-white/50 mt-2 line-clamp-2 min-h-[2.5rem]">
+                    {forYouPost
+                      ? forYouPost.title
+                      : "최신 글을 커뮤니티에서 확인해 보세요."}
+                  </p>
+                  <p className="text-xs mt-3" style={{ color: "var(--accent)" }}>
+                    {t.home.forYouGo}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatOpen(true)}
+                  className="glass-dark flex-shrink-0 w-[250px] p-4 rounded-2xl border border-white/10 text-left active:scale-[0.98] transition-transform"
+                  style={{ padding: 16 }}
+                >
+                  <p className="text-sm font-bold text-white leading-snug">
+                    💬 최근 AI 대화
+                  </p>
+                  <p className="text-xs text-white/50 mt-2 line-clamp-2 min-h-[2.5rem]">
+                    {personalization.recentQuestions[0]?.slice(0, 80) ||
+                      "AI에게 칭다오 생활을 물어보세요."}
+                  </p>
+                  <p className="text-xs mt-3" style={{ color: "var(--accent)" }}>
+                    {t.home.forYouGo}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("recommend")}
+                  className="glass-dark flex-shrink-0 w-[250px] p-4 rounded-2xl border border-white/10 text-left active:scale-[0.98] transition-transform"
+                  style={{ padding: 16 }}
+                >
+                  <p className="text-sm font-bold text-white leading-snug">
+                    📌 저장·관심 기반
+                  </p>
+                  <p className="text-xs text-white/50 mt-2 line-clamp-2 min-h-[2.5rem]">
+                    저장한 곳 근처 새로운 맛집이 있어요! 추천 탭에서 확인해 보세요.
+                  </p>
+                  <p className="text-xs mt-3" style={{ color: "var(--accent)" }}>
+                    {t.home.forYouGo}
+                  </p>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("community")}
+                  className="glass-dark flex-shrink-0 w-[250px] p-4 rounded-2xl border border-white/10 text-left"
+                  style={{ padding: 16 }}
+                >
+                  <p className="text-sm font-bold text-white">🍜 칭다오 인기 맛집 보기</p>
+                  <p className="text-xs text-white/50 mt-2 line-clamp-2 min-h-[2.5rem]">
+                    커뮤니티에서 맛집 후기를 모아봤어요.
+                  </p>
+                  <p className="text-xs mt-3" style={{ color: "var(--accent)" }}>
+                    {t.home.forYouGo}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatOpen(true)}
+                  className="glass-dark flex-shrink-0 w-[250px] p-4 rounded-2xl border border-white/10 text-left"
+                  style={{ padding: 16 }}
+                >
+                  <p className="text-sm font-bold text-white">📋 비자 정보 확인하기</p>
+                  <p className="text-xs text-white/50 mt-2 line-clamp-2 min-h-[2.5rem]">
+                    AI에게 비자·체류 관련 질문을 해보세요.
+                  </p>
+                  <p className="text-xs mt-3" style={{ color: "var(--accent)" }}>
+                    {t.home.forYouGo}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChatOpen(true)}
+                  className="glass-dark flex-shrink-0 w-[250px] p-4 rounded-2xl border border-white/10 text-left"
+                  style={{ padding: 16 }}
+                >
+                  <p className="text-sm font-bold text-white">🏠 집 구하기 가이드</p>
+                  <p className="text-xs text-white/50 mt-2 line-clamp-2 min-h-[2.5rem]">
+                    부동산·월세 정보가 필요하면 AI에게 물어보세요.
+                  </p>
+                  <p className="text-xs mt-3" style={{ color: "var(--accent)" }}>
+                    {t.home.forYouGo}
+                  </p>
+                </button>
+              </>
+            )}
           </div>
         </motion.section>
 

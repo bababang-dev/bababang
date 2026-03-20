@@ -8,6 +8,8 @@ import { i18n } from "@/lib/i18n";
 import type { ShopEntry } from "@/lib/shopDict";
 import type { ChatMessage } from "@/types";
 import { ReportModal } from "@/components/modals/ReportModal";
+import { openDidi } from "@/lib/deeplinks";
+import { trackActivity } from "@/lib/trackActivity";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -20,6 +22,7 @@ function cleanResponse(text: string): string {
     .replace(/```[^`]*```/g, "")
     .replace(/#{1,6}\s/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\n?\[RECOMMEND:[^\]]+\]\s*/g, "")
     .replace(/\n{5,}/g, "\n\n\n")
     .trim();
 }
@@ -69,6 +72,7 @@ export function ChatPanel() {
     lastQuestionDate,
     addFeedback,
     incrementQuestionCount,
+    openMapActionSheet,
   } = useStore();
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -119,6 +123,7 @@ export function ChatPanel() {
       addChatMessage({ role: "ai", text: t.dailyLimitReached });
       return;
     }
+    void trackActivity("ask_ai", undefined, trimmed);
     addChatMessage({ role: "user", text: trimmed });
     addChatMessage({ role: "ai", text: "" });
     setInput("");
@@ -332,6 +337,15 @@ export function ChatPanel() {
                             <span className="typing-cursor">▊</span>
                           )}
                         </div>
+                        {msg.recommendedShops &&
+                          msg.recommendedShops.length > 0 &&
+                          /맛집|장소|추천|가게|식당|카페|주소|업체|칭다오|청도|美食|餐厅|烧烤|火锅|咖啡|데려|안내|소개|찾아|위치|怎么走|怎么去/i.test(
+                            msg.text
+                          ) && (
+                            <p className="mt-1.5 text-[11px] text-white/45 italic">
+                              📍 위 장소로 길찾기나 택시가 필요하면 추천 카드를 탭해보세요
+                            </p>
+                          )}
                         <div className="mt-1.5 flex items-center gap-2 text-white/50">
                           <button
                             type="button"
@@ -423,7 +437,7 @@ export function ChatPanel() {
                             <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar">
                               {msg.recommendedShops.map((shop, si) => (
                                 <div
-                                  key={`${shop.zh}-${si}`}
+                                  key={`${shop.name}-${si}`}
                                   className="relative w-[220px] flex-shrink-0"
                                 >
                                   <button
@@ -441,36 +455,71 @@ export function ChatPanel() {
                                   <button
                                   type="button"
                                   onClick={() =>
-                                    sendMessage(`${shop.koreanName} 자세히 알려줘`)
+                                    sendMessage(`${shop.name} 자세히 알려줘`)
                                   }
                                   className="w-full text-left rounded-xl bg-white/10 px-3 py-2 pr-8"
                                 >
                                   <p className="text-sm font-semibold text-white">
-                                    {shop.category.includes("맛집")
-                                      ? "🍜"
-                                      : shop.category.includes("카페")
-                                        ? "☕"
-                                        : shop.category.includes("병원")
-                                          ? "🏥"
-                                          : "🏬"}{" "}
-                                    {shop.koreanName}
+                                    🏬 {shop.name}
                                   </p>
-                                  <p className="text-[11px] text-white/50 mt-0.5">{shop.zh}</p>
-                                  <p className="text-xs text-white/80 mt-1">📍 {shop.district}</p>
-                                  {shop.recommendMenu && (
-                                    <p className="text-xs text-white/80 mt-1">
-                                      🍜 {shop.recommendMenu}
+                                  {shop.address ? (
+                                    <p className="text-[11px] text-white/50 mt-0.5 line-clamp-2">
+                                      {shop.address}
                                     </p>
-                                  )}
-                                  {shop.priceRange && (
-                                    <p className="text-xs text-white/80 mt-1">
-                                      💰 {shop.priceRange}
-                                    </p>
-                                  )}
-                                  {shop.tip && (
-                                    <p className="text-[11px] text-[#c9b8ff] mt-1.5">{shop.tip}</p>
-                                  )}
+                                  ) : null}
+                                  {shop.tel ? (
+                                    <p className="text-xs text-white/80 mt-1">📞 {shop.tel}</p>
+                                  ) : null}
+                                  {shop.rating ? (
+                                    <p className="text-xs text-white/80 mt-1">⭐ {shop.rating}</p>
+                                  ) : null}
+                                  {shop.cost ? (
+                                    <p className="text-xs text-white/80 mt-1">💰 {shop.cost}</p>
+                                  ) : null}
                                 </button>
+                                {shop.lat && shop.lng && (
+                                  <div className="mt-2 flex gap-2 px-1">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openMapActionSheet(
+                                          shop.lat!,
+                                          shop.lng!,
+                                          shop.name,
+                                          shop.address || ""
+                                        );
+                                      }}
+                                      className="flex-1 rounded-[12px] border px-3 py-1 text-[12px] leading-tight"
+                                      style={{
+                                        borderWidth: 1,
+                                        borderStyle: "solid",
+                                        borderColor: "var(--accent)",
+                                        color: "var(--accent)",
+                                        padding: "4px 12px",
+                                      }}
+                                    >
+                                      🗺️ 길찾기
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openDidi(shop.lat!, shop.lng!, shop.name);
+                                      }}
+                                      className="flex-1 rounded-[12px] border px-3 py-1 text-[12px] leading-tight"
+                                      style={{
+                                        borderWidth: 1,
+                                        borderStyle: "solid",
+                                        borderColor: "var(--gold)",
+                                        color: "var(--gold)",
+                                        padding: "4px 12px",
+                                      }}
+                                    >
+                                      🚗 택시
+                                    </button>
+                                  </div>
+                                )}
                                 </div>
                               ))}
                             </div>
@@ -571,7 +620,9 @@ export function ChatPanel() {
             open={!!reportShop}
             onClose={() => setReportShop(null)}
             shopDisplayName={
-              reportShop ? `${reportShop.koreanName} (${reportShop.zh})` : ""
+              reportShop
+                ? `${reportShop.name}${reportShop.address ? ` · ${reportShop.address}` : ""}`
+                : ""
             }
             onSubmitted={() =>
               setToast("신고해주셔서 감사합니다! 확인 후 반영할게요.")

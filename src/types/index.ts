@@ -73,14 +73,14 @@ export interface ChatMessage {
   role: "ai" | "user";
   text: string;
   sources?: Array<{ title: string; link: string }>;
+  /** 高德 실시간 검색 + AI 답변 매칭 결과 */
   recommendedShops?: Array<{
-    zh: string;
-    koreanName: string;
-    category: string;
-    district: string;
-    description: string;
-    recommendMenu: string;
-    priceRange: string;
-    tip: string;
+    name: string;
+    address: string;
+    tel: string;
+    rating: string;
+    cost: string;
+    lat: string;
+    lng: string;
   }>;
 }

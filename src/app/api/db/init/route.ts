@@ -163,6 +163,31 @@ export async function GET() {
       }
     }
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS user_activity (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT DEFAULT 1,
+        activity_type ENUM('view_post','view_place','search','ask_ai','bookmark','click_category') NOT NULL,
+        category VARCHAR(50),
+        keyword VARCHAR(200),
+        target_id INT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_date (user_id, created_at)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS user_preferences (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL UNIQUE,
+        top_categories JSON,
+        top_keywords JSON,
+        last_location VARCHAR(50),
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
     // 테스트 유저 생성
     await conn.query(`
       INSERT IGNORE INTO users (id, nickname, email, avatar, plan, tokens)
