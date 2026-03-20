@@ -257,27 +257,31 @@ export function LoginModal() {
     }
   };
 
-  const onAiAvatar = async () => {
+  const handleAIAvatar = async () => {
     if (aiLoading) return;
     setAiLoading(true);
     try {
       const res = await fetch("/api/ai-avatar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          photoUrl: avatarUrl && avatarUrl.startsWith("http") ? avatarUrl : undefined,
+        }),
       });
       const data = (await res.json()) as { success?: boolean; url?: string; error?: string };
-      if (!res.ok || !data.url) {
-        showToast(data.error ?? "생성에 실패했어요. 다시 시도해주세요");
-        return;
+      if (data.url) {
+        setAvatarUrl(data.url);
+      } else {
+        alert(data.error || "생성에 실패했어요. 다시 시도해주세요");
       }
-      setAvatarUrl(data.url);
     } catch {
-      showToast("생성에 실패했어요. 다시 시도해주세요");
+      alert("생성에 실패했어요. 다시 시도해주세요");
     } finally {
       setAiLoading(false);
     }
   };
+
+  const hasPhotoForAi = Boolean(avatarUrl && avatarUrl.startsWith("http"));
 
   const onFinish = async () => {
     const nick = nickname.trim();
@@ -592,18 +596,22 @@ export function LoginModal() {
               {aiLoading && (
                 <p className="text-sm text-white/70 mt-4 flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                  AI가 캐릭터를 만들고 있어요... 🎨
+                  🎨 캐릭터를 그리고 있어요... (10~15초)
                 </p>
               )}
 
               <button
                 type="button"
                 disabled={aiLoading}
-                onClick={() => void onAiAvatar()}
+                onClick={() => void handleAIAvatar()}
                 className="mt-4 text-sm font-medium disabled:opacity-60"
                 style={{ color: "var(--accent, #a78bfa)" }}
               >
-                {aiLoading ? "🎨 생성 중... (10~15초)" : "✨ AI 캐릭터 생성"}
+                {aiLoading
+                  ? "🎨 캐릭터를 그리고 있어요... (10~15초)"
+                  : hasPhotoForAi
+                    ? "✨ 내 사진으로 캐릭터 만들기"
+                    : "✨ 랜덤 캐릭터 생성"}
               </button>
             </div>
 
