@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
+import type { RowDataPacket } from "mysql2";
 import { findShop } from "@/lib/shopDict";
 import { findCategories } from "@/lib/categoryDict";
+
+type ChatDbPostRow = RowDataPacket & {
+  title: string;
+  content?: string | null;
+  category?: string;
+  tags?: string | null;
+};
+
+type ChatDbPromoRow = RowDataPacket & {
+  business_name: string;
+  business_name_zh?: string | null;
+  category?: string;
+  address?: string | null;
+  phone?: string | null;
+  description?: string | null;
+  template_data?: unknown;
+  tags?: string | null;
+};
 
 function stripHtml(str: string): string {
   return (str ?? "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/\n{3,}/g, "\n\n").trim();
@@ -249,6 +268,80 @@ function analyzeCollectedData(
   return report;
 }
 
+/** 커뮤니티 게시글 + 업체 홍보(DB) — 네이버/高德/차이나조아와 함께 참고자료로 사용 */
+async function fetchBababangDbContext(userMessage: string): Promise<string[]> {
+  const communityData: string[] = [];
+  try {
+    const pool = (await import("@/lib/db")).default;
+
+    const keywords = userMessage
+      .replace(/[?？ 를을에서의로]/g, " ")
+      .split(" ")
+      .filter((w: string) => w.length >= 2)
+      .slice(0, 3);
+
+    if (keywords.length > 0) {
+      const likeConditions = keywords.map(() => "(title LIKE ? OR content LIKE ? OR tags LIKE ?)").join(" OR ");
+      const likeParams = keywords.flatMap((k: string) => [`%${k}%`, `%${k}%`, `%${k}%`]);
+
+      const [posts] = (await pool.query(
+        `SELECT title, content, category, tags, created_at FROM posts WHERE ${likeConditions} ORDER BY created_at DESC LIMIT 5`,
+        likeParams
+      )) as [ChatDbPostRow[], unknown];
+
+      if (Array.isArray(posts) && posts.length > 0) {
+        communityData.push(
+          ...posts.map(
+            (p: { title: string; content?: string | null }) =>
+              `[커뮤니티] ${p.title}: ${stripHtml(p.content || "").slice(0, 200)}`
+          )
+        );
+      }
+    }
+
+    const [promotions] = (await pool.query(
+      `SELECT business_name, business_name_zh, category, address, phone, description, template_data, tags 
+       FROM promotions WHERE status = 'active' ORDER BY created_at DESC LIMIT 10`
+    )) as [ChatDbPromoRow[], unknown];
+
+    if (Array.isArray(promotions) && promotions.length > 0) {
+      const relevantPromos = promotions.filter((p: Record<string, unknown>) => {
+        const allText = [p.business_name, p.business_name_zh, p.description, p.category, p.tags, p.address]
+          .filter(Boolean)
+          .join(" ");
+        return keywords.some((k: string) => allText.includes(k));
+      });
+
+      const promosToUse = relevantPromos.length > 0 ? relevantPromos : promotions.slice(0, 3);
+
+      promosToUse.forEach((p: Record<string, unknown>) => {
+        let info = `[등록업체] ${p.business_name}`;
+        if (p.business_name_zh) info += ` (${p.business_name_zh})`;
+        if (p.address) info += ` | 주소: ${p.address}`;
+        if (p.phone) info += ` | 전화: ${p.phone}`;
+        if (p.description) info += ` | ${p.description}`;
+        if (p.template_data) {
+          try {
+            const td = typeof p.template_data === "string" ? JSON.parse(p.template_data as string) : p.template_data;
+            const details = Object.entries(td as Record<string, unknown>)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(", ");
+            if (details) info += ` | ${details}`;
+          } catch {
+            /* ignore */
+          }
+        }
+        communityData.push(info);
+      });
+    }
+
+    console.log("=== DB 데이터: 게시글+" + "업체 " + communityData.length + "개 ===");
+  } catch (e) {
+    console.log("=== DB 조회 실패 ===", e);
+  }
+  return communityData;
+}
+
 export async function POST(request: Request) {
   let body: { messages?: unknown; localShops?: unknown };
   try {
@@ -295,8 +388,9 @@ export async function POST(request: Request) {
           amapKeywords = ["美食"];
         }
 
-        const [chinazoaData, ...amapAndNaverResults] = await Promise.all([
+        const [chinazoaData, bababangDbLines, ...amapAndNaverResults] = await Promise.all([
           crawlChinazoa(userMessage),
+          fetchBababangDbContext(userMessage),
           ...amapKeywords.map((kw) => amapSearch(kw)),
           naverSearch("blog", searchQuery, 15, startPos, sortType),
           naverSearch("blog", searchQuery, 15, 11, sortType === "sim" ? "date" : "sim"),
@@ -329,11 +423,18 @@ export async function POST(request: Request) {
           })
         );
 
-        const totalSources = chinazoaData.length + uniquePois.length + allNaverItems.length;
-        console.log(`=== 총 수집: 차이나조아 ${chinazoaData.length} + 高德 ${uniquePois.length} + 네이버 ${allNaverItems.length} = ${totalSources}개 ===`);
+        const totalSources =
+          chinazoaData.length + uniquePois.length + allNaverItems.length + bababangDbLines.length;
+        console.log(
+          `=== 총 수집: 차이나조아 ${chinazoaData.length} + 高德 ${uniquePois.length} + 네이버 ${allNaverItems.length} + BabaBangDB ${bababangDbLines.length} = ${totalSources}개 ===`
+        );
 
         const analysisReport = analyzeCollectedData(uniquePois, allNaverItems, chinazoaData, blogContents);
-        const searchContext = analysisReport.slice(0, 2000);
+        let searchContext = analysisReport.slice(0, 2000);
+        if (bababangDbLines.length > 0) {
+          searchContext += "\n\n=== BabaBang 유저 등록 정보 (가장 신뢰도 높음) ===\n";
+          searchContext += bababangDbLines.join("\n");
+        }
         console.log("=== 분석 보고서 길이: " + searchContext.length + "자 ===");
 
         const locationContext = "";
@@ -418,18 +519,19 @@ export async function POST(request: Request) {
           ? `질문: ${userMessage}
 ${locationContext}${shopContext}
 
-아래는 高德地图, 한국인 블로그/카페/지식인, 한인 커뮤니티에서 총 ${totalSources}개 글을 수집하고 분석한 결과야.
+아래는 BabaBang 앱에 유저가 올린 커뮤니티 글·업체 홍보(DB), 高德地图, 한국인 블로그/카페/지식인, 한인 커뮤니티에서 총 ${totalSources}개 소스를 수집하고 분석한 결과야.
 빈도가 높은 것 = 많은 사람이 추천한 검증된 정보야.
 
 답변 규칙:
-1. [자주 언급된 키워드]에서 빈도 높은 것을 우선 추천
-2. [高德地图 공식 정보]의 주소, 전화, 평점을 사용
-3. [상세 후기]에서 구체적인 메뉴, 가격, 팁을 가져와
-4. 여러 소스에서 공통으로 나오는 정보를 강조
-5. 검색결과에 없는 가게명, 주소, 가격을 지어내지 마
-6. 출처 관련 단어 언급하지 마 (블로그, 카페, 네이버, 高德 등)
-7. 마크다운 문법 절대 쓰지마
-8. 줄바꿈 많이 넣어서 읽기 쉽게
+1. [BabaBang 유저 등록 정보] 섹션이 있으면 이 정보를 최우선으로 활용해. 실제 유저가 직접 등록한 업체·게시글이라서 가장 정확해.
+2. [자주 언급된 키워드]에서 빈도 높은 것을 우선 추천
+3. [高德地图 공식 정보]의 주소, 전화, 평점을 사용
+4. [상세 후기]에서 구체적인 메뉴, 가격, 팁을 가져와
+5. 여러 소스에서 공통으로 나오는 정보를 강조
+6. 수집된 정보에 없는 가게명, 주소, 가격을 지어내지 마
+7. 출처 관련 단어 언급하지 마 (블로그, 카페, 네이버, 高德 등)
+8. 마크다운 문법 절대 쓰지마
+9. 줄바꿈 많이 넣어서 읽기 쉽게
 
 ${searchContext}${recommendFooter}`
           : userMessage;
