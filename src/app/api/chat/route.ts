@@ -379,10 +379,6 @@ type AmapPoi = {
   _score?: number;
 };
 
-function zhNameBase(zh: string): string {
-  return zh.split("(")[0].split("（")[0].trim();
-}
-
 function calculateShopScore(
   poi: AmapPoi,
   naverMentions: Map<string, number>,
@@ -982,76 +978,82 @@ ${searchContext}`
           lng: string;
         };
 
-        const poiToRecommendedCard = (poi: AmapPoi, koreanName: string): RecommendedCard => {
-          const lat = poi.location ? poi.location.split(",")[1]?.trim() ?? "" : "";
-          const lng = poi.location ? poi.location.split(",")[0]?.trim() ?? "" : "";
-          return {
-            name: poi.name,
-            koreanName,
-            address: poi.address ?? "",
-            tel: poi.tel ?? "",
-            rating: poi.rating ?? "",
-            cost: poi.cost ?? "",
-            openTime: poi.openTime ?? "",
-            photos: poi.photos ?? [],
-            lat,
-            lng,
+        let recommendedShopNames: string[] = [];
+        try {
+          const extractRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+            signal: AbortSignal.timeout(5000),
+            body: JSON.stringify({
+              model: "deepseek-chat",
+              temperature: 0,
+              max_tokens: 200,
+              messages: [
+                {
+                  role: "user",
+                  content:
+                    "아래 텍스트에서 추천하거나 언급한 가게/업체/기관 이름만 중국어로 뽑아줘. 없으면 '없음'이라고 해. 쉼표로 구분해서 이름만 출력해. 다른 말 하지마.\n\n" +
+                    fullContent.slice(0, 1500),
+                },
+              ],
+            }),
+          });
+          const extractData = (await extractRes.json()) as {
+            choices?: Array<{ message?: { content?: string } }>;
           };
-        };
+          const extracted = extractData.choices?.[0]?.message?.content?.trim() || "";
+          console.log("=== 추천 가게 추출: " + extracted + " ===");
 
-        const koreanNameForPoi = (poi: AmapPoi): string => {
-          const shortName = zhNameBase(poi.name);
-          const dictMatch = shopDict.find((s) => {
-            const dictZh = zhNameBase(s.zh || "");
-            return dictZh === shortName || shortName.includes(dictZh) || dictZh.includes(shortName);
+          if (extracted && extracted !== "없음") {
+            recommendedShopNames = extracted
+              .split(/[,，、]/)
+              .map((n: string) => n.trim())
+              .filter((n: string) => n.length >= 2);
+          }
+        } catch {
+          console.log("=== 추천 가게 추출 실패 ===");
+        }
+
+        const allRecommendedShops: RecommendedCard[] = [];
+
+        for (const zhName of recommendedShopNames.slice(0, 5)) {
+          const shortName = zhName.split("(")[0].split("（")[0].trim();
+
+          let matched: AmapPoi | undefined = uniquePois.find((poi) => {
+            const poiShort = (poi.name || "").split("(")[0].split("（")[0].trim();
+            return poiShort === shortName || poiShort.includes(shortName) || shortName.includes(poiShort);
           });
-          return dictMatch?.koreanNames[0] ?? "";
-        };
 
-        const scoreForRecommendedCard = (card: RecommendedCard): number => {
-          const p = uniquePois.find(
-            (poi) => poi.name === card.name || zhNameBase(poi.name) === zhNameBase(card.name)
-          );
-          return p?._score ?? 0;
-        };
-
-        const mentionedPois = uniquePois.filter((poi) => {
-          const name = poi.name || "";
-          const shortName = name.split("(")[0].split("（")[0].trim();
-
-          if (shortName.length >= 2 && fullContent.includes(shortName)) return true;
-
-          const dictMatch = shopDict.find((s) => {
-            const dictZh = (s.zh || "").split("(")[0].split("（")[0].trim();
-            return dictZh === shortName || shortName.includes(dictZh) || dictZh.includes(shortName);
-          });
-          if (dictMatch) {
-            for (const korName of dictMatch.koreanNames) {
-              if (korName.length >= 2 && fullContent.includes(korName)) return true;
-            }
+          if (!matched && shopAmapResults.length > 0) {
+            matched = shopAmapResults.find((poi) => {
+              const poiShort = (poi.name || "").split("(")[0].split("（")[0].trim();
+              return poiShort === shortName || poiShort.includes(shortName) || shortName.includes(poiShort);
+            });
           }
 
-          return false;
-        });
-
-        const mentionedDictShops = shopDict.filter((shop) =>
-          shop.koreanNames.some((name) => name.length >= 2 && fullContent.includes(name))
-        );
-
-        const cardsFromPois: RecommendedCard[] = mentionedPois.map((poi) =>
-          poiToRecommendedCard(poi, koreanNameForPoi(poi))
-        );
-
-        for (const dictShop of mentionedDictShops) {
-          const alreadyIncluded = cardsFromPois.some((c) => {
-            const shortName = (c.name || "").split("(")[0].split("（")[0].trim();
-            const dictZh = (dictShop.zh || "").split("(")[0].split("（")[0].trim();
-            return shortName === dictZh || shortName.includes(dictZh) || dictZh.includes(shortName);
+          const dictMatch = shopDict.find((s) => {
+            const dZh = (s.zh || "").split("(")[0].split("（")[0].trim();
+            return dZh === shortName || dZh.includes(shortName) || shortName.includes(dZh);
           });
-          if (!alreadyIncluded && dictShop.zh) {
-            cardsFromPois.push({
-              name: dictShop.zh,
-              koreanName: dictShop.koreanNames[0],
+          const koreanName = dictMatch ? dictMatch.koreanNames[0] : "";
+
+          if (matched) {
+            allRecommendedShops.push({
+              name: matched.name || zhName,
+              koreanName,
+              address: matched.address || "",
+              tel: matched.tel || "",
+              rating: matched.rating || "",
+              cost: matched.cost || "",
+              openTime: matched.openTime ? String(matched.openTime) : "",
+              photos: matched.photos ?? [],
+              lat: matched.location ? matched.location.split(",")[1]?.trim() ?? "" : "",
+              lng: matched.location ? matched.location.split(",")[0]?.trim() ?? "" : "",
+            });
+          } else {
+            allRecommendedShops.push({
+              name: zhName,
+              koreanName,
               address: "",
               tel: "",
               rating: "",
@@ -1063,10 +1065,6 @@ ${searchContext}`
             });
           }
         }
-
-        cardsFromPois.sort((a, b) => scoreForRecommendedCard(b) - scoreForRecommendedCard(a));
-
-        const allRecommendedShops: RecommendedCard[] = cardsFromPois.slice(0, 5);
 
         const cardsNeedingInfo = allRecommendedShops.filter((s) => !s.address && s.name);
         if (cardsNeedingInfo.length > 0) {

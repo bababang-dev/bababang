@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Outfit, Noto_Sans_KR } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,13 @@ const notoSansKR = Noto_Sans_KR({
 export const metadata: Metadata = {
   title: "BabaBang 아빠방 - 칭다오 한인 생활 AI",
   description: "칭다오 한인 생활 AI 플랫폼. 생활 정보, 맛집, 비자, 육아까지.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({

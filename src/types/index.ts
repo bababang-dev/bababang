@@ -65,6 +65,8 @@ export interface User {
   stats: {
     posts: number;
     bookmarks: number;
+    comments: number;
+    likes: number;
   };
 }
 

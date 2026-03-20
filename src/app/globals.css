@@ -45,6 +45,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+input,
+textarea,
+select {
+  font-size: 16px !important;
+}
+
 body {
   font-family: var(--font-body);
   overflow: hidden;

@@ -220,6 +220,8 @@ export const mockUser: User = {
   stats: {
     posts: 12,
     bookmarks: 28,
+    comments: 5,
+    likes: 3,
   },
 };
 

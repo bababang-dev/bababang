@@ -257,7 +257,7 @@ export const useStore = create<AppState>((set, get) => ({
         plan: user.plan,
         tokens: user.tokens,
         joined,
-        stats: { posts: 0, bookmarks: 0 },
+        stats: { posts: 0, bookmarks: 0, comments: 0, likes: 0 },
       },
       loginModalOpen: false,
     });
