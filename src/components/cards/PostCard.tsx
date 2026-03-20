@@ -18,7 +18,7 @@ export function PostCard({
   dark = false,
   staggerDelay,
 }: PostCardProps) {
-  const { lang, togglePostBookmark, setDetailView } = useStore();
+  const { lang, togglePostBookmark, setDetailView, requireLogin } = useStore();
   const isBookmarked = useStore((s) => s.bookmarkedPosts.has(post.id));
   const [translated, setTranslated] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -69,6 +69,7 @@ export function PostCard({
       }
       className={`${cardClass} p-4 cursor-pointer active:scale-[0.98] transition-transform`}
       onClick={() => {
+        if (!requireLogin()) return;
         const tid =
           typeof post.id === "string" && /^\d+$/.test(post.id)
             ? parseInt(post.id, 10)
@@ -200,6 +201,7 @@ export function PostCard({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            if (!requireLogin()) return;
             if (!isBookmarked) {
               const tid =
                 typeof post.id === "string" && /^\d+$/.test(post.id)

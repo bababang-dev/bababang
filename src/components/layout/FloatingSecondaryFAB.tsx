@@ -10,6 +10,7 @@ export function FloatingSecondaryFAB() {
   const recommendSubTab = useStore((s) => s.recommendSubTab);
   const openWritePost = useStore((s) => s.openWritePost);
   const openPromotionModal = useStore((s) => s.openPromotionModal);
+  const requireLogin = useStore((s) => s.requireLogin);
 
   const showCommunity = activeTab === "community";
   const showPromotion = activeTab === "recommend" && recommendSubTab === "promo";
@@ -21,7 +22,10 @@ export function FloatingSecondaryFAB() {
       {showCommunity && (
         <motion.button
           type="button"
-          onClick={openWritePost}
+          onClick={() => {
+            if (!requireLogin()) return;
+            openWritePost();
+          }}
           className="absolute rounded-full flex items-center justify-center pointer-events-auto"
           style={{
             bottom: 88,
@@ -43,7 +47,10 @@ export function FloatingSecondaryFAB() {
       {showPromotion && (
         <motion.button
           type="button"
-          onClick={openPromotionModal}
+          onClick={() => {
+            if (!requireLogin()) return;
+            openPromotionModal();
+          }}
           className="absolute rounded-full flex items-center justify-center pointer-events-auto"
           style={{
             bottom: 88,

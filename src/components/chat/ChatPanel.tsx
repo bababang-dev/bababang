@@ -73,6 +73,8 @@ export function ChatPanel() {
     addFeedback,
     incrementQuestionCount,
     openMapActionSheet,
+    currentUserId,
+    requireLogin,
   } = useStore();
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -115,6 +117,7 @@ export function ChatPanel() {
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (!requireLogin()) return;
     if (user && user.tokens <= 0) {
       addChatMessage({ role: "ai", text: t.noTokens });
       return;
@@ -143,6 +146,7 @@ export function ChatPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: messagesForApi,
+          userId: currentUserId ?? 1,
           localShops:
             typeof window !== "undefined"
               ? ((JSON.parse(
@@ -363,7 +367,7 @@ export function ChatPanel() {
                                   : "";
                               const aiMsg = chatMessages[i]?.text ?? "";
                               void persistFeedbackToDb({
-                                userId: 1,
+                                userId: currentUserId ?? 1,
                                 userMessage: userMsg,
                                 aiResponse: aiMsg,
                                 feedback: "good",
@@ -410,7 +414,7 @@ export function ChatPanel() {
                                         : "";
                                     const aiMsg = chatMessages[i]?.text ?? "";
                                     void persistFeedbackToDb({
-                                      userId: 1,
+                                      userId: currentUserId ?? 1,
                                       userMessage: userMsg,
                                       aiResponse: aiMsg,
                                       feedback: "bad",

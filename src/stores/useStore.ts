@@ -2,6 +2,16 @@ import { create } from "zustand";
 import { mockPosts } from "@/lib/mockData";
 import type { TabKey, Lang, User, ChatMessage, Post } from "@/types";
 
+/** 로그인 API / localStorage 복원용 */
+export type LoginUserPayload = {
+  id: number;
+  nickname: string;
+  avatar: string;
+  plan: "free" | "premium";
+  tokens: number;
+  language: Lang;
+};
+
 interface AppState {
   // 네비게이션
   activeTab: TabKey;
@@ -61,7 +71,15 @@ interface AppState {
   openWritePost: () => void;
   closeWritePost: () => void;
 
-  // 유저
+  // 유저 / 인증
+  isLoggedIn: boolean;
+  currentUserId: number | null;
+  loginModalOpen: boolean;
+  openLoginModal: () => void;
+  closeLoginModal: () => void;
+  requireLogin: () => boolean;
+  login: (user: LoginUserPayload) => void;
+  logout: () => void;
   user: User | null;
   setUser: (user: User | null) => void;
   posts: Post[];
@@ -209,6 +227,45 @@ export const useStore = create<AppState>((set, get) => ({
   openWritePost: () => set({ writePostOpen: true }),
   closeWritePost: () => set({ writePostOpen: false }),
 
+  isLoggedIn: false,
+  currentUserId: null,
+  loginModalOpen: false,
+  openLoginModal: () => set({ loginModalOpen: true }),
+  closeLoginModal: () => set({ loginModalOpen: false }),
+  requireLogin: () => {
+    const s = get();
+    if (s.isLoggedIn && s.currentUserId != null) return true;
+    set({ loginModalOpen: true });
+    return false;
+  },
+  login: (user) => {
+    const joined = new Date().toISOString().slice(0, 7);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("bababang-lang", user.language);
+    }
+    set({
+      isLoggedIn: true,
+      currentUserId: user.id,
+      lang: user.language,
+      user: {
+        name: user.nickname,
+        nameZh: user.nickname,
+        email: "",
+        avatar: user.avatar,
+        plan: user.plan,
+        tokens: user.tokens,
+        joined,
+        stats: { posts: 0, bookmarks: 0 },
+      },
+      loginModalOpen: false,
+    });
+  },
+  logout: () => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("bababang-user");
+    }
+    set({ isLoggedIn: false, currentUserId: null, user: null, loginModalOpen: false });
+  },
   user: null,
   setUser: (user) => set({ user }),
   posts: mockPosts,

@@ -62,6 +62,7 @@ export function WritePromotionModal() {
     promotionModalOpen,
     closePromotionModal,
     triggerPromotionsRefresh,
+    currentUserId,
   } = useStore();
   const [step, setStep] = useState<"cat" | "form">("cat");
   const [cat, setCat] = useState<PromoCategory | null>(null);
@@ -202,7 +203,7 @@ export function WritePromotionModal() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: 1,
+          userId: currentUserId ?? 1,
           category: cat,
           businessName: businessName.trim(),
           businessNameZh: businessNameZh.trim() || null,

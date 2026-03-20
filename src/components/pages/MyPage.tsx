@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import {
@@ -16,9 +15,9 @@ import {
   Settings,
   ChevronRight,
   Shield,
+  LogOut,
 } from "lucide-react";
 import { useStore } from "@/stores/useStore";
-import { mockUser } from "@/lib/mockData";
 import { i18n } from "@/lib/i18n";
 import { Header } from "@/components/layout/Header";
 
@@ -34,7 +33,6 @@ const menuIcons = {
 export function MyPage() {
   const {
     lang,
-    setUser,
     setMembershipOpen,
     adminMode,
     activateAdmin,
@@ -42,15 +40,35 @@ export function MyPage() {
     resetAdminTap,
     adminTapCount,
     setActiveTab,
+    logout,
+    openLoginModal,
   } = useStore();
   const user = useStore((s) => s.user);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [password, setPassword] = useState("");
-  useEffect(() => {
-    if (!user) setUser(mockUser);
-  }, [user, setUser]);
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
 
-  const u = user ?? mockUser;
+  const u = user;
+  if (!u) {
+    return (
+      <div className="min-h-full bg-[#0a0a0f] text-white pb-24 scrollbar-thin">
+        <Header titleKey="my" showSearch={false} dark />
+        <div className="max-w-[430px] mx-auto px-4 pt-16 text-center">
+          <p className="text-white/70 text-sm mb-4">로그인하고 마이페이지를 이용해 보세요</p>
+          <button
+            type="button"
+            onClick={openLoginModal}
+            className="px-8 py-3 rounded-xl font-semibold text-white"
+            style={{
+              background: "linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%)",
+            }}
+          >
+            로그인
+          </button>
+        </div>
+      </div>
+    );
+  }
   const t = i18n[lang].myPage;
   const displayName = lang === "zh" ? u.nameZh : u.name;
 
@@ -84,7 +102,7 @@ export function MyPage() {
         >
           <div className="flex items-center gap-4">
             <div
-              className="w-16 h-16 rounded-full flex items-center justify-center font-outfit text-2xl font-bold text-white"
+              className="w-16 h-16 rounded-full flex items-center justify-center font-outfit text-2xl font-bold text-white overflow-hidden shrink-0"
               style={{
                 background: "linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%)",
               }}
@@ -96,7 +114,17 @@ export function MyPage() {
                 }
               }}
             >
-              {u.name.slice(0, 1)}
+              {/^https?:\/\//i.test(u.avatar) ? (
+                <img
+                  src={u.avatar}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : !u.avatar || u.avatar.trim() === "" ? (
+                (lang === "zh" ? u.nameZh : u.name).slice(0, 1)
+              ) : (
+                <span className="text-3xl leading-none">{u.avatar}</span>
+              )}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -166,8 +194,48 @@ export function MyPage() {
               </motion.button>
             );
           })}
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+            onClick={() => setLogoutConfirm(true)}
+            className="w-full glass-dark p-4 flex items-center gap-3 text-left active:scale-[0.98] transition-transform rounded-2xl mt-2 border border-white/5"
+            whileTap={{ scale: 0.98 }}
+          >
+            <LogOut className="w-5 h-5 text-white/70" />
+            <span className="flex-1 text-left">로그아웃</span>
+            <ChevronRight className="w-5 h-5 text-white/40" />
+          </motion.button>
         </motion.section>
       </div>
+
+      {logoutConfirm && (
+        <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center px-6">
+          <div className="w-full max-w-[360px] rounded-2xl bg-[#171725] p-4 border border-white/10">
+            <p className="text-sm text-white/80 mb-3">로그아웃 하시겠어요?</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg bg-white/10 text-sm"
+                onClick={() => setLogoutConfirm(false)}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg bg-accent text-sm"
+                onClick={() => {
+                  setLogoutConfirm(false);
+                  logout();
+                }}
+              >
+                로그아웃
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {passwordOpen && (
         <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center px-6">

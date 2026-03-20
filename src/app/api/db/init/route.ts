@@ -20,6 +20,17 @@ export async function GET() {
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
 
+    try {
+      await conn.query("ALTER TABLE users ADD COLUMN phone VARCHAR(20) DEFAULT NULL");
+    } catch {
+      /* 이미 있음 */
+    }
+    try {
+      await conn.query("ALTER TABLE users MODIFY COLUMN avatar VARCHAR(512)");
+    } catch {
+      /* 호환 */
+    }
+
     // 게시글 테이블
     await conn.query(`
       CREATE TABLE IF NOT EXISTS posts (

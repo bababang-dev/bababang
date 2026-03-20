@@ -27,7 +27,7 @@ export function PlaceCard({
   dark = false,
   staggerDelay,
 }: PlaceCardProps) {
-  const { lang, togglePlaceBookmark, setDetailView } = useStore();
+  const { lang, togglePlaceBookmark, setDetailView, requireLogin } = useStore();
   const isBookmarked = useStore((s) => s.bookmarkedPlaces.has(place.id));
   const t = i18n[lang].common;
 
@@ -81,6 +81,7 @@ export function PlaceCard({
                   const tid = parseInt(String(place.id).replace(/\D/g, ""), 10) || undefined;
                   void trackActivity("bookmark", "place", place.name, tid);
                 }
+                if (!requireLogin()) return;
                 togglePlaceBookmark(place.id);
               }}
               className="ml-auto p-1 rounded-lg hover:bg-black/5"

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useStore } from "@/stores/useStore";
-import { mockUser } from "@/lib/mockData";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { FloatingAIButton } from "@/components/layout/FloatingAIButton";
 import { FloatingSecondaryFAB } from "@/components/layout/FloatingSecondaryFAB";
@@ -20,6 +19,7 @@ import { MembershipModal } from "@/components/modals/MembershipModal";
 import { WritePostModal } from "@/components/modals/WritePostModal";
 import { WritePromotionModal } from "@/components/modals/WritePromotionModal";
 import { MapActionSheet } from "@/components/modals/MapActionSheet";
+import { LoginModal } from "@/components/modals/LoginModal";
 import { getUserLocation } from "@/lib/geolocation";
 import type { TabKey } from "@/types";
 
@@ -37,15 +37,48 @@ export default function MainPage() {
   const setRecommendSubTab = useStore((s) => s.setRecommendSubTab);
   const detailView = useStore((s) => s.detailView);
   const membershipOpen = useStore((s) => s.membershipOpen);
-  const setUser = useStore((s) => s.setUser);
-  const user = useStore((s) => s.user);
+  const login = useStore((s) => s.login);
+  const loginModalOpen = useStore((s) => s.loginModalOpen);
   const setLang = useStore((s) => s.setLang);
   const setUserLocation = useStore((s) => s.setUserLocation);
   const [locationToast, setLocationToast] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) setUser(mockUser);
-  }, [user, setUser]);
+    const saved = window.localStorage.getItem("bababang-user");
+    if (!saved) return;
+    try {
+      const userData = JSON.parse(saved) as { id?: number };
+      if (userData.id == null || !Number.isFinite(Number(userData.id))) return;
+      void fetch("/api/auth/me?userId=" + String(userData.id))
+        .then((r) => r.json())
+        .then(
+          (data: {
+            user?: {
+              id: number;
+              nickname: string;
+              avatar: string;
+              plan: "free" | "premium";
+              tokens: number;
+              language: string;
+            };
+          }) => {
+            if (data.user) {
+              login({
+                id: data.user.id,
+                nickname: data.user.nickname,
+                avatar: data.user.avatar,
+                plan: data.user.plan,
+                tokens: data.user.tokens,
+                language: data.user.language === "zh" ? "zh" : "ko",
+              });
+            }
+          }
+        )
+        .catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }, [login]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("bababang-lang");
@@ -147,6 +180,7 @@ export default function MainPage() {
           {locationToast}
         </div>
       )}
+      {loginModalOpen && <LoginModal />}
     </div>
   );
 }

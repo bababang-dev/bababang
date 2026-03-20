@@ -343,12 +343,20 @@ async function fetchBababangDbContext(userMessage: string): Promise<string[]> {
 }
 
 export async function POST(request: Request) {
-  let body: { messages?: unknown; localShops?: unknown };
+  let body: { messages?: unknown; localShops?: unknown; userId?: unknown };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  const rawUid = body.userId;
+  const chatUserId =
+    typeof rawUid === "number" && Number.isFinite(rawUid) && rawUid > 0
+      ? rawUid
+      : typeof rawUid === "string" && Number(rawUid) > 0
+        ? Number(rawUid)
+        : 1;
 
   const messages = body.messages as Array<{ role: string; content: string }>;
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -457,7 +465,7 @@ export async function POST(request: Request) {
           const pool = (await import("@/lib/db")).default;
           const [prefRows] = await pool.query(
             `SELECT category, COUNT(*) as cnt FROM user_activity WHERE user_id = ? AND category IS NOT NULL AND created_at > DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY category ORDER BY cnt DESC LIMIT 3`,
-            [1]
+            [chatUserId]
           );
           const rows = prefRows as Array<{ category: string }>;
           if (Array.isArray(rows) && rows.length > 0) {
@@ -643,7 +651,7 @@ ${searchContext}${recommendFooter}`
         try {
           const pool = (await import("@/lib/db")).default;
           await pool.query("INSERT INTO chat_history (user_id, user_message, ai_response) VALUES (?, ?, ?)", [
-            1,
+            chatUserId,
             userMessage,
             fullContentForUser,
           ]);

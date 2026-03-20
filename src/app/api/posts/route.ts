@@ -45,27 +45,32 @@ export async function POST(request: Request) {
       images?: string;
     };
 
-    // AI 자동 태그 (태그가 없으면 DeepSeek으로 생성)
+    // AI 자동 태그 (태그가 없으면 OpenAI로 생성)
     let finalTags = tags;
     if (!finalTags || String(finalTags).trim() === "") {
       try {
-        const apiKey = process.env.DEEPSEEK_API_KEY;
+        const apiKey = process.env.OPENAI_API_KEY;
         if (apiKey && title && content) {
-          const tagRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
+          const tagRes = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + apiKey,
+            },
             body: JSON.stringify({
-              model: "deepseek-chat",
+              model: "gpt-4o-mini",
               temperature: 0,
               max_tokens: 50,
-              messages: [{
-                role: "user",
-                content:
-                  "아래 글의 태그를 3~5개 생성해. 쉼표로 구분해서 태그만 답해. 다른 말 하지마.\n\n제목: " +
-                  title +
-                  "\n내용: " +
-                  String(content).slice(0, 200),
-              }],
+              messages: [
+                {
+                  role: "user",
+                  content:
+                    "아래 글의 태그를 3~5개 생성해. 쉼표로 구분해서 태그만 답해. 다른 말 하지마.\n\n제목: " +
+                    title +
+                    "\n내용: " +
+                    String(content).slice(0, 200),
+                },
+              ],
             }),
           });
           const tagData = (await tagRes.json()) as {

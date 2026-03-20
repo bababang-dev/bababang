@@ -147,7 +147,8 @@ function HotPlaceCard({
 }
 
 export function HomePage() {
-  const { lang, setChatOpen, setActiveTab, setDetailView } = useStore();
+  const { lang, setChatOpen, setActiveTab, setDetailView, currentUserId, requireLogin } =
+    useStore();
   const t = i18n[lang];
   const hotPlaces = mockPlaces.slice(0, 4);
   const popularPosts = mockPosts.slice(0, 3);
@@ -216,7 +217,8 @@ export function HomePage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/activity?userId=1");
+        const uid = currentUserId ?? 1;
+        const res = await fetch("/api/activity?userId=" + String(uid));
         const data = (await res.json()) as {
           topCategories?: { name: string; count: number }[];
           recentQuestions?: string[];
@@ -248,7 +250,7 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentUserId]);
 
   const quickActions = buildQuickMenuItems(
     personalization?.topCategories?.length
@@ -554,8 +556,10 @@ export function HomePage() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (forYouPost) setDetailView(forYouPost.id);
-                    else setActiveTab("community");
+                    if (forYouPost) {
+                      if (!requireLogin()) return;
+                      setDetailView(forYouPost.id);
+                    } else setActiveTab("community");
                   }}
                   className="glass-dark flex-shrink-0 w-[250px] p-4 rounded-2xl border border-white/10 text-left active:scale-[0.98] transition-transform"
                   style={{ padding: 16 }}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useStore } from "@/stores/useStore";
 
 type ReportType = "closed" | "wrong_info" | "other";
 
@@ -13,6 +14,7 @@ type Props = {
 };
 
 export function ReportModal({ open, onClose, shopDisplayName, onSubmitted }: Props) {
+  const currentUserId = useStore((s) => s.currentUserId);
   const [otherText, setOtherText] = useState("");
   const [step, setStep] = useState<"choose" | "other">("choose");
   const [submitting, setSubmitting] = useState(false);
@@ -36,7 +38,7 @@ export function ReportModal({ open, onClose, shopDisplayName, onSubmitted }: Pro
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: 1,
+          userId: currentUserId ?? 1,
           shopName: shopDisplayName,
           reportType,
           detail: detail?.trim() || null,

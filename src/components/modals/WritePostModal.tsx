@@ -18,6 +18,7 @@ export function WritePostModal() {
     user,
     lang,
     triggerPostsRefresh,
+    currentUserId,
   } = useStore();
   const [category, setCategory] = useState<(typeof categories)[number]>("생활정보");
   const [title, setTitle] = useState("");
@@ -160,7 +161,7 @@ export function WritePostModal() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: 1,
+          userId: currentUserId ?? 1,
           category,
           title: title.trim(),
           content: content.trim(),

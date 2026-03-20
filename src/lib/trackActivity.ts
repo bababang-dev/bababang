@@ -1,3 +1,5 @@
+import { useStore } from "@/stores/useStore";
+
 export type ActivityType =
   | "view_post"
   | "view_place"
@@ -20,11 +22,12 @@ export async function trackActivity(
   targetId?: string | number
 ) {
   try {
+    const userId = useStore.getState().currentUserId ?? 1;
     await fetch("/api/activity", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: 1,
+        userId,
         activityType,
         category: category ?? null,
         keyword: keyword ?? null,
