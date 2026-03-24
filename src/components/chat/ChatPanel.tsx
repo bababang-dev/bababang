@@ -805,20 +805,29 @@ export function ChatPanel() {
                 : `오늘 남은 무료 질문: ${freeAiRemaining}/5`}
             </p>
             {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
-            <div className="chat-input-area border-t border-white/10 flex gap-2 px-4 pt-3">
+            <div
+              className="chat-input-area border-t border-white/10 flex w-full min-w-0 overflow-hidden"
+              style={{
+                display: "flex",
+                gap: 8,
+                padding: "8px 12px",
+                width: "100%",
+              }}
+            >
               <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
                 placeholder={t.placeholder}
-                className="flex-1 bg-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-accent/50"
-                style={{ fontSize: "16px" }}
+                className="min-w-0 flex-1 bg-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-accent/50"
+                style={{ fontSize: "16px", flex: 1, minWidth: 0 }}
               />
               <motion.button
                 type="button"
                 onClick={() => sendMessage(input)}
-                className="p-3 rounded-xl bg-accent text-white flex-shrink-0"
+                className="flex shrink-0 items-center justify-center rounded-xl bg-accent text-white"
+                style={{ width: 40, height: 40, flexShrink: 0 }}
                 whileTap={{ scale: 0.95 }}
               >
                 <Send className="w-5 h-5" />
