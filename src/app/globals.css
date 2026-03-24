@@ -32,7 +32,7 @@
   --radius: 16px;
   --radius-sm: 10px;
   --radius-xs: 6px;
-  --nav-height: 72px;
+  --nav-height: 60px;
   --header-height: 56px;
   --font-display: 'Outfit', 'Noto Sans KR', sans-serif;
   --font-body: 'Noto Sans KR', 'Outfit', sans-serif;
@@ -51,12 +51,25 @@ select {
   font-size: 16px !important;
 }
 
+/* iOS 키보드·뷰포트 대응 */
+html {
+  height: -webkit-fill-available;
+}
+
 body {
   font-family: var(--font-body);
   overflow: hidden;
   background: var(--bg-dark);
   /* iOS 노치/상단 safe-area */
   padding-top: env(safe-area-inset-top, 0px);
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+}
+
+/* 메인 스크롤 영역: 모달 열릴 때 배경 스크롤 잠금 */
+.page-scroll.page-scroll--locked {
+  overflow: hidden !important;
+  touch-action: none;
 }
 
 /* 하단 네비게이션 safe-area */

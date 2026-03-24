@@ -10,6 +10,7 @@ import type { ChatMessage } from "@/types";
 import { ReportModal } from "@/components/modals/ReportModal";
 import { openDidi } from "@/lib/deeplinks";
 import { trackActivity } from "@/lib/trackActivity";
+import { useModalBodyLock } from "@/lib/useModalBodyLock";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -169,6 +170,7 @@ export function ChatPanel() {
     currentUserId,
     requireLogin,
   } = useStore();
+  useModalBodyLock(chatOpen);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamReplyStarted, setStreamReplyStarted] = useState(false);

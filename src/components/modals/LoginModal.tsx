@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, Camera, Loader2 } from "lucide-react";
 import { useStore, type LoginUserPayload } from "@/stores/useStore";
+import { useModalBodyLock } from "@/lib/useModalBodyLock";
 import type { Lang } from "@/types";
 
 type Step = "main" | "phone" | "otp" | "profile";
@@ -59,6 +60,8 @@ export function LoginModal() {
   const closeLoginModal = useStore((s) => s.closeLoginModal);
   const login = useStore((s) => s.login);
   const lang = useStore((s) => s.lang);
+
+  useModalBodyLock(loginModalOpen);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 

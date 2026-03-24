@@ -6,6 +6,7 @@ import { ChevronLeft, Sparkles, Undo2 } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import type { Post } from "@/types";
 import { MediaUploadArea, type MediaItem } from "@/components/common/MediaUploadArea";
+import { useModalBodyLock } from "@/lib/useModalBodyLock";
 
 const categories = ["생활정보", "맛집", "비자", "육아", "비즈니스", "자유"] as const;
 
@@ -20,6 +21,7 @@ export function WritePostModal() {
     triggerPostsRefresh,
     currentUserId,
   } = useStore();
+  useModalBodyLock(writePostOpen);
   const [category, setCategory] = useState<(typeof categories)[number]>("생활정보");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");

@@ -56,22 +56,22 @@ export async function POST(request: Request) {
       console.log("=== 얼굴 분석: " + description.slice(0, 100) + " ===");
 
       dallePrompt =
-        "Create a Studio Ghibli and Disney inspired cartoon avatar character based on this person's appearance: " +
+        "Create a Disney Pixar style 3D animated character portrait based on this person: " +
         description +
-        ". Style: warm Ghibli watercolor meets Disney Pixar 3D charm, soft lighting, gentle expression, simple pastel background, profile picture suitable, circular crop friendly. The character should clearly resemble the described person but in a cute animated style.";
+        ". Style: exactly like a Disney Pixar movie character (like characters from Coco, Inside Out, Up). Round friendly face, big expressive eyes, smooth 3D render, soft studio lighting. Close-up portrait shot, shoulders up only, simple gradient background. The image should be square and work perfectly as a circular profile picture. Make the character clearly resemble the described person but in adorable Pixar style.";
     } else {
       const styles = [
-        "a friendly young man with messy hair and warm smile, wearing a cozy sweater",
-        "a cheerful young woman with long flowing hair and bright eyes, wearing a cute beret",
-        "a cool guy with short hair and glasses, wearing a casual hoodie",
-        "a sweet girl with bob cut hair and freckles, wearing a scarf",
-        "a playful young person with curly hair and dimples, wearing overalls",
+        "a friendly young Korean man with neat short hair, wearing a casual polo shirt, warm smile",
+        "a cheerful young Korean woman with shoulder-length hair, wearing a cute cardigan, bright eyes",
+        "a cool Korean guy with styled hair and round glasses, wearing a hoodie, confident smile",
+        "a sweet Korean girl with long straight hair and bangs, wearing a turtleneck, gentle expression",
+        "a fun Korean person with wavy hair, wearing a denim jacket, playful grin",
       ];
       const randomStyle = styles[Math.floor(Math.random() * styles.length)];
       dallePrompt =
-        "Create a Studio Ghibli and Disney inspired cartoon avatar of " +
+        "Create a Disney Pixar style 3D animated character portrait of " +
         randomStyle +
-        ". Style: warm Ghibli watercolor texture meets Disney Pixar 3D charm, soft golden lighting, gentle happy expression, simple dreamy pastel background, profile picture suitable, circular crop friendly. Make it adorable and unique.";
+        ". Style: exactly like a Disney Pixar movie character. Round friendly face, big expressive eyes, smooth 3D render, soft studio lighting. Close-up portrait shot, shoulders up only, simple pastel gradient background. Square image, perfect for circular profile picture crop. Adorable and unique.";
     }
 
     const response = await fetch("https://api.openai.com/v1/images/generations", {

@@ -30,7 +30,7 @@ export function FloatingSecondaryFAB() {
           }}
           className="absolute rounded-full flex items-center justify-center pointer-events-auto"
           style={{
-            bottom: 88,
+            bottom: "calc(60px + env(safe-area-inset-bottom, 0px) + 12px)",
             right: 80,
             width: 48,
             height: 48,
@@ -55,7 +55,7 @@ export function FloatingSecondaryFAB() {
           }}
           className="absolute rounded-full flex items-center justify-center pointer-events-auto"
           style={{
-            bottom: 88,
+            bottom: "calc(60px + env(safe-area-inset-bottom, 0px) + 12px)",
             right: 80,
             width: 48,
             height: 48,

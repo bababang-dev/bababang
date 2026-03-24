@@ -39,6 +39,9 @@ export default function MainPage() {
   const membershipOpen = useStore((s) => s.membershipOpen);
   const login = useStore((s) => s.login);
   const loginModalOpen = useStore((s) => s.loginModalOpen);
+  const chatOpen = useStore((s) => s.chatOpen);
+  const writePostOpen = useStore((s) => s.writePostOpen);
+  const promotionModalOpen = useStore((s) => s.promotionModalOpen);
   const setLang = useStore((s) => s.setLang);
   const setUserLocation = useStore((s) => s.setUserLocation);
   const [locationToast, setLocationToast] = useState<string | null>(null);
@@ -136,13 +139,16 @@ export default function MainPage() {
 
   const isLightTab = ["bookmark", "community", "recommend"].includes(activeTab);
 
+  const pageScrollLocked =
+    chatOpen || loginModalOpen || writePostOpen || promotionModalOpen;
+
   return (
     <div
       className="app-shell max-w-[430px] mx-auto overflow-hidden bg-[#0a0a0f] relative flex flex-col"
       style={{ maxWidth: 430 }}
     >
       <div
-        className="page-scroll flex-1 min-h-0 overflow-auto"
+        className={`page-scroll flex-1 min-h-0 ${pageScrollLocked ? "page-scroll--locked" : "overflow-auto"}`}
         style={
           isLightTab ? { background: "#f5f6fa", minHeight: "100%" } : undefined
         }

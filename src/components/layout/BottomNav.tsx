@@ -39,7 +39,7 @@ export function BottomNav() {
       }`}
       style={{ marginLeft: "auto", marginRight: "auto" }}
     >
-      <div className="flex justify-around items-center h-16 px-2">
+      <div className="flex h-[60px] justify-around items-center px-2">
         {tabs.map(({ key, icon: Icon }) => {
           const active = activeTab === key;
           const label =
@@ -57,7 +57,7 @@ export function BottomNav() {
               key={key}
               type="button"
               onClick={() => setActiveTab(key)}
-              className={`relative flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-2 rounded-xl active:scale-[0.98] ${
+              className={`relative flex h-full min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-xl active:scale-[0.98] ${
                 active
                   ? "text-[var(--accent-light)]"
                   : "text-[var(--text-muted)]"
@@ -66,15 +66,15 @@ export function BottomNav() {
             >
               {active && (
                 <span
-                  className="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                  className="absolute top-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
                   style={{ background: "var(--accent-light)" }}
                 />
               )}
               <Icon
-                className="w-[22px] h-[22px] flex-shrink-0"
+                className="h-6 w-6 flex-shrink-0"
                 strokeWidth={active ? 2.5 : 2}
               />
-              <span className="text-[10px] font-medium">{label}</span>
+              <span className="text-[11px] font-medium leading-tight">{label}</span>
             </motion.button>
           );
         })}

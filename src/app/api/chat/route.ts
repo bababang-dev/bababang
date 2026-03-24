@@ -577,7 +577,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "messages required" }, { status: 400 });
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "API key missing" }, { status: 500 });
 
   const encoder = new TextEncoder();
@@ -604,12 +604,12 @@ export async function POST(request: Request) {
           const hasKorean = /[가-힣]/.test(userMessage);
           if (hasKorean) {
             try {
-              const transRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
+              const transRes = await fetch("https://api.openai.com/v1/chat/completions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
                 signal: AbortSignal.timeout(5000),
                 body: JSON.stringify({
-                  model: "deepseek-chat",
+                  model: "gpt-4o-mini",
                   temperature: 0,
                   max_tokens: 100,
                   messages: [
@@ -885,12 +885,12 @@ ${locationContext}
 ${searchContext}`
           : userMessage;
 
-        const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
           signal: AbortSignal.timeout(50000),
           body: JSON.stringify({
-            model: "deepseek-chat",
+            model: "gpt-4o-mini",
             temperature: 0.7,
             max_tokens: 1500,
             stream: true,
@@ -980,12 +980,12 @@ ${searchContext}`
 
         let recommendedShopNames: string[] = [];
         try {
-          const extractRes = await fetch("https://api.deepseek.com/v1/chat/completions", {
+          const extractRes = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
             signal: AbortSignal.timeout(5000),
             body: JSON.stringify({
-              model: "deepseek-chat",
+              model: "gpt-4o-mini",
               temperature: 0,
               max_tokens: 200,
               messages: [

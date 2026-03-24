@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { ChevronLeft, Sparkles, Undo2 } from "lucide-react";
 import { useStore } from "@/stores/useStore";
+import { useModalBodyLock } from "@/lib/useModalBodyLock";
 import { MediaUploadArea, type MediaItem } from "@/components/common/MediaUploadArea";
 
 export type PromoCategory =
@@ -64,6 +65,7 @@ export function WritePromotionModal() {
     triggerPromotionsRefresh,
     currentUserId,
   } = useStore();
+  useModalBodyLock(promotionModalOpen);
   const [step, setStep] = useState<"cat" | "form">("cat");
   const [cat, setCat] = useState<PromoCategory | null>(null);
   const [businessName, setBusinessName] = useState("");
