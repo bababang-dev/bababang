@@ -14,9 +14,10 @@ function normalizeTargetLang(
 
 export async function POST(request: Request) {
   try {
-    const { text, targetLang } = (await request.json()) as {
+    const { text, targetLang, mixedMode } = (await request.json()) as {
       text?: string;
       targetLang?: string;
+      mixedMode?: boolean;
     };
     if (!text || !String(text).trim()) {
       return NextResponse.json({ error: "text required" }, { status: 400 });
@@ -74,7 +75,18 @@ export async function POST(request: Request) {
     }
 
     const targetLangLabel = norm.label;
-    const systemPrompt = `당신은 전문 통역사입니다. 아래 규칙을 따르세요:
+    const mixedModeOn = Boolean(mixedMode);
+    const systemPrompt = mixedModeOn
+      ? `당신은 한국어-중국어 전문 통역사입니다.
+
+규칙:
+1. 입력 텍스트가 음성인식 결과라서 부정확할 수 있습니다.
+2. 한국어, 중국어, 또는 혼합 텍스트가 올 수 있습니다.
+3. 음성인식 오류를 자연스럽게 교정하세요.
+4. ${targetLangLabel}로 자연스럽게 번역하세요.
+5. JSON으로만 응답: {"corrected": "교정된 원문", "translated": "번역결과"}
+6. 다른 설명 하지 마세요.`
+      : `당신은 전문 통역사입니다. 아래 규칙을 따르세요:
 
 1. 한국어와 중국어가 섞여 있으면 전체 맥락을 이해해서 자연스러운 ${targetLangLabel}로 번역하세요.
 2. 문법 오류, 불완전한 문장, 말 더듬기가 있으면 의미를 파악해서 완성된 문장으로 번역하세요.

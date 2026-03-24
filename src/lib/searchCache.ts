@@ -176,7 +176,9 @@ export async function cacheReview(
     | "zhihu"
     | "weibo"
     | "meituan"
-    | "user",
+    | "user"
+    | "firecrawl"
+    | "chinazoa",
   keyword: string
 ): Promise<number> {
   try {

@@ -479,7 +479,6 @@ export function ChatPanel() {
   >([]);
   const voiceCombinedRef = useRef("");
   const voicePendingStopRef = useRef(false);
-  const [isVoiceChatListening, setIsVoiceChatListening] = useState(false);
 
   useEffect(() => {
     if (!voiceTranslateMode) {
@@ -564,7 +563,11 @@ export function ChatPanel() {
       const res = await fetch("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed, targetLang }),
+        body: JSON.stringify({
+          text: trimmed,
+          targetLang,
+          mixedMode: true,
+        }),
       });
       const data = (await res.json()) as {
         translation?: string;
@@ -700,49 +703,6 @@ export function ChatPanel() {
       if (t) void translateVoiceText(t);
       else setVoiceMicPhase("idle");
     };
-  };
-
-  const startVoiceInput = () => {
-    const w = window as unknown as {
-      SpeechRecognition?: new () => {
-        lang: string;
-        interimResults: boolean;
-        start: () => void;
-        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
-        onerror: (() => void) | null;
-        onend: (() => void) | null;
-      };
-      webkitSpeechRecognition?: new () => {
-        lang: string;
-        interimResults: boolean;
-        start: () => void;
-        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
-        onerror: (() => void) | null;
-        onend: (() => void) | null;
-      };
-    };
-    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!SR) {
-      alert(
-        lang === "zh"
-          ? "当前浏览器不支持语音识别"
-          : "음성인식을 지원하지 않는 브라우저예요."
-      );
-      return;
-    }
-    if (isVoiceChatListening) return;
-    const recognition = new SR();
-    recognition.lang = "ko-KR";
-    recognition.interimResults = false;
-    setIsVoiceChatListening(true);
-    recognition.start();
-    recognition.onresult = (event: { results: Array<Array<{ transcript: string }>> }) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      setIsVoiceChatListening(false);
-      if (transcript.trim()) void sendMessage(transcript.trim());
-    };
-    recognition.onerror = () => setIsVoiceChatListening(false);
-    recognition.onend = () => setIsVoiceChatListening(false);
   };
 
   const sendMessage = async (text: string) => {
@@ -1548,21 +1508,6 @@ export function ChatPanel() {
               />
               <motion.button
                 type="button"
-                onClick={() => startVoiceInput()}
-                className="shrink-0 p-2 rounded-xl flex items-center justify-center"
-                style={{
-                  background: isVoiceChatListening
-                    ? "rgba(239,68,68,0.35)"
-                    : "rgba(255,255,255,0.08)",
-                }}
-                whileTap={{ scale: 0.95 }}
-                title={lang === "zh" ? "语音输入" : "음성 질문"}
-                aria-label={lang === "zh" ? "语音输入" : "음성 질문"}
-              >
-                <span className="text-xl leading-none">{isVoiceChatListening ? "⏹️" : "🎤"}</span>
-              </motion.button>
-              <motion.button
-                type="button"
                 onClick={() => sendMessage(input)}
                 className="flex shrink-0 items-center justify-center rounded-xl bg-accent text-white"
                 style={{ width: 40, height: 40, flexShrink: 0 }}
@@ -1574,103 +1519,33 @@ export function ChatPanel() {
 
             {voiceTranslateMode ? (
               <div
-                className="absolute inset-0 z-[100] flex flex-col bg-[#0a0a0f]"
+                className="absolute inset-0 z-[100] flex min-h-0 flex-col bg-[#0a0a0f]"
                 style={{ top: 0, right: 0, bottom: 0, left: 0 }}
               >
                 <div
-                  className="flex shrink-0 items-center justify-between px-4 py-3 border-b border-white/10"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+                  className="shrink-0 py-3 text-center font-bold text-white"
+                  style={{ fontSize: 16 }}
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      try {
-                        voiceRecognitionRef.current?.stop();
-                      } catch {
-                        /* ignore */
-                      }
-                      window.speechSynthesis.cancel();
-                      setVoiceTranslateMode(false);
-                      setIsVoiceTranslateListening(false);
-                      setVoiceMicPhase("idle");
-                    }}
-                    className="text-white/80 text-lg px-2"
-                    aria-label="닫기"
-                  >
-                    ✕
-                  </button>
-                  <span className="font-semibold text-white text-sm">🎙️ 음성번역</span>
-                  <div className="w-6" />
+                  🎙️ 음성번역
                 </div>
 
-                <div
-                  className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2"
-                  style={{ maxHeight: "38vh" }}
-                >
-                  {voiceHistory.map((item, hi) => (
-                    <div
-                      key={hi}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: item.lang === "ko" ? "flex-start" : "flex-end",
-                        padding: "4px 0",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: "rgba(255,255,255,0.4)",
-                          marginBottom: 2,
-                        }}
-                      >
-                        {item.lang === "ko" ? "🇰🇷 한국어" : "🇨🇳 中文"}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 14,
-                          color: "white",
-                          background:
-                            item.lang === "ko"
-                              ? "rgba(108,92,231,0.2)"
-                              : "rgba(255,255,255,0.1)",
-                          padding: "8px 12px",
-                          borderRadius: 12,
-                          maxWidth: "85%",
-                        }}
-                      >
-                        {item.original}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 14,
-                          color: "#a78bfa",
-                          padding: "4px 12px",
-                        }}
-                      >
-                        → {item.translated}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="shrink-0 px-5 pb-2 space-y-3">
+                <div className="shrink-0 space-y-3 px-4 pb-3">
                   <div
-                    className="rounded-2xl p-4 min-h-[4.5rem]"
+                    className="min-h-[4.5rem] rounded-2xl p-4"
                     style={{ background: "rgba(255,255,255,0.05)" }}
                   >
                     <div
-                      className="text-[11px] mb-2"
+                      className="mb-2 text-[11px]"
                       style={{ color: "rgba(255,255,255,0.4)" }}
                     >
-                      {voiceLang === "ko" ? "🇰🇷 한국어" : "🇨🇳 中文"}
+                      {voiceLang === "ko" ? "🇰🇷 원문" : "🇨🇳 原文"}
                     </div>
                     <div
                       style={{
                         fontSize: 14,
                         color: voiceResult.isInterim
                           ? "rgba(255,255,255,0.35)"
-                          : "rgba(255,255,255,0.45)",
+                          : "rgba(255,255,255,0.9)",
                         fontWeight: 400,
                       }}
                     >
@@ -1687,7 +1562,7 @@ export function ChatPanel() {
                             color: "#e9d5ff",
                           }}
                         >
-                          ✨ 교정됨
+                          ✨ 교정
                         </span>
                         <span style={{ fontSize: 15, color: "white", fontWeight: 600 }}>
                           {voiceResult.corrected}
@@ -1695,33 +1570,40 @@ export function ChatPanel() {
                       </div>
                     ) : null}
                   </div>
+
                   <button
                     type="button"
-                    onClick={() =>
-                      setVoiceLang((v) => (v === "ko" ? "zh" : "ko"))
-                    }
-                    className="w-full rounded-full px-5 py-2 text-sm text-white border"
+                    onClick={() => setVoiceLang((v) => (v === "ko" ? "zh" : "ko"))}
+                    className="flex w-full items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-sm text-white"
                     style={{
                       background: "rgba(108,92,231,0.2)",
                       borderColor: "rgba(108,92,231,0.3)",
                     }}
                   >
-                    🔄 {voiceLang === "ko" ? "한→中" : "中→한"} 전환
+                    <span>🇰🇷</span>
+                    <span>한→中</span>
+                    <span>🔄</span>
+                    <span>中→한</span>
+                    <span>🇨🇳</span>
                   </button>
+
                   <div
-                    className="rounded-2xl p-4 min-h-[4.5rem] border"
+                    className="min-h-[4.5rem] rounded-2xl border p-4"
                     style={{
                       background: "rgba(108,92,231,0.1)",
                       borderColor: "rgba(108,92,231,0.2)",
                     }}
                   >
                     <div
-                      className="text-[11px] mb-2"
+                      className="mb-2 text-[11px]"
                       style={{ color: "rgba(255,255,255,0.4)" }}
                     >
-                      {voiceLang === "ko" ? "🇨🇳 中文 번역" : "🇰🇷 한국어 번역"}
+                      {voiceLang === "ko" ? "🇨🇳 번역" : "🇰🇷 번역"}
                     </div>
-                    <div className="text-lg flex items-center gap-2" style={{ color: "#a78bfa" }}>
+                    <div
+                      className="flex items-center gap-2 text-lg"
+                      style={{ color: "#a78bfa" }}
+                    >
                       {voiceMicPhase === "translating" ? (
                         <>
                           <span className="inline-block animate-spin text-white/60">⏳</span>
@@ -1734,112 +1616,140 @@ export function ChatPanel() {
                   </div>
                 </div>
 
-                <div className="flex flex-col items-center shrink-0 pb-8 pt-2">
-                  <div
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
+                  <div className="text-[11px] text-white/40 mb-1">대화 기록</div>
+                  {voiceHistory.length === 0 ? (
+                    <p className="text-sm text-white/35">아직 기록이 없어요</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {voiceHistory.map((item, hi) => (
+                        <div
+                          key={hi}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: item.lang === "ko" ? "flex-start" : "flex-end",
+                            padding: "4px 0",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "rgba(255,255,255,0.4)",
+                              marginBottom: 2,
+                            }}
+                          >
+                            {item.lang === "ko" ? "🇰🇷 한국어" : "🇨🇳 中文"}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              color: "white",
+                              background:
+                                item.lang === "ko"
+                                  ? "rgba(108,92,231,0.2)"
+                                  : "rgba(255,255,255,0.1)",
+                              padding: "8px 12px",
+                              borderRadius: 12,
+                              maxWidth: "85%",
+                            }}
+                          >
+                            {item.original}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              color: "#a78bfa",
+                              padding: "4px 12px",
+                            }}
+                          >
+                            → {item.translated}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "20px 30px",
+                    gap: 20,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        voiceRecognitionRef.current?.stop();
+                      } catch {
+                        /* ignore */
+                      }
+                      window.speechSynthesis.cancel();
+                      setVoiceTranslateMode(false);
+                      setIsVoiceTranslateListening(false);
+                      setVoiceMicPhase("idle");
+                    }}
                     style={{
-                      position: "relative",
+                      width: 48,
+                      height: 48,
+                      borderRadius: "50%",
+                      background: "rgba(255,255,255,0.1)",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      color: "white",
+                      fontSize: 18,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      width: 140,
-                      height: 140,
                     }}
+                    aria-label="닫기"
                   >
-                    {isVoiceTranslateListening ? (
-                      <>
-                        <div
-                          style={{
-                            position: "absolute",
-                            width: 80,
-                            height: 80,
-                            borderRadius: "50%",
-                            border: "2px solid rgba(239,68,68,0.4)",
-                            animation: "pulse 1.5s ease-in-out infinite",
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: "absolute",
-                            width: 100,
-                            height: 100,
-                            borderRadius: "50%",
-                            border: "2px solid rgba(239,68,68,0.2)",
-                            animation: "pulse 1.5s ease-in-out infinite",
-                            animationDelay: "0.3s",
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: "absolute",
-                            width: 120,
-                            height: 120,
-                            borderRadius: "50%",
-                            border: "2px solid rgba(239,68,68,0.1)",
-                            animation: "pulse 1.5s ease-in-out infinite",
-                            animationDelay: "0.6s",
-                          }}
-                        />
-                      </>
-                    ) : null}
+                    ✕
+                  </button>
+
+                  <div style={{ position: "relative" }}>
                     <button
                       type="button"
                       onClick={() => {
                         if (voiceMicPhase === "translating") return;
                         void startVoiceTranslate();
                       }}
-                      className="rounded-full flex items-center justify-center border-0 relative z-10"
                       style={{
-                        width: 80,
-                        height: 80,
-                        background:
-                          voiceMicPhase === "done"
-                            ? "linear-gradient(135deg, #22c55e, #4ade80)"
-                            : isVoiceTranslateListening
-                              ? "rgba(239,68,68,0.85)"
-                              : voiceMicPhase === "translating"
-                                ? "linear-gradient(135deg, #6c5ce7, #a78bfa)"
-                                : "linear-gradient(135deg, #6c5ce7, #a78bfa)",
-                        boxShadow:
-                          isVoiceTranslateListening
-                            ? "0 0 30px rgba(239,68,68,0.5)"
-                            : "0 0 30px rgba(108,92,231,0.3)",
-                        opacity: voiceMicPhase === "translating" ? 0.7 : 1,
+                        width: 72,
+                        height: 72,
+                        borderRadius: "50%",
+                        background: isVoiceTranslateListening
+                          ? "rgba(239,68,68,0.8)"
+                          : "linear-gradient(135deg, #6c5ce7, #a78bfa)",
+                        border: "none",
+                        fontSize: 28,
+                        color: "white",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: voiceMicPhase === "translating" ? 0.65 : 1,
                       }}
                     >
-                      <span className="text-3xl">
-                        {voiceMicPhase === "done"
-                          ? "✓"
-                          : isVoiceTranslateListening
-                            ? "⏹️"
-                            : voiceMicPhase === "translating"
-                              ? "⏳"
-                              : "🎤"}
-                      </span>
+                      {isVoiceTranslateListening ? "⏹️" : "🎤"}
                     </button>
                   </div>
-                  {voiceMicPhase === "done" && voiceResult.translated ? (
-                    <button
-                      type="button"
-                      onClick={() => playVoiceTts(voiceResult.translated)}
-                      className="mt-2 text-xs"
-                      style={{ color: "rgba(255,255,255,0.45)" }}
-                    >
-                      🔊 다시 듣기
-                    </button>
-                  ) : null}
-                  <p
-                    className="text-center mt-2 text-[13px] px-4"
-                    style={{ color: "rgba(255,255,255,0.4)" }}
-                  >
-                    {voiceMicPhase === "listening"
-                      ? "듣고 있어요..."
-                      : voiceMicPhase === "translating"
-                        ? "번역중..."
-                        : voiceMicPhase === "done"
-                          ? "번역 완료!"
-                          : "마이크를 누르고 말해보세요"}
-                  </p>
+
+                  <div style={{ width: 48 }} />
                 </div>
+                {voiceMicPhase === "done" && voiceResult.translated ? (
+                  <button
+                    type="button"
+                    onClick={() => playVoiceTts(voiceResult.translated)}
+                    className="-mt-1 pb-2 text-center text-xs"
+                    style={{ color: "rgba(255,255,255,0.45)" }}
+                  >
+                    🔊 다시 듣기
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </motion.aside>
