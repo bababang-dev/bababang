@@ -11,7 +11,7 @@ import {
   cacheSearchResult,
 } from "@/lib/searchCache";
 import { firecrawlScrape } from "@/lib/firecrawl";
-import { amapSearch, type AmapPoiItem } from "@/lib/amap";
+import { amapSearch, type AmapPoiItem, type AmapSearchOptions } from "@/lib/amap";
 
 type ChatDbPostRow = RowDataPacket & {
   title: string;
@@ -172,36 +172,124 @@ async function amapAround(
   }
 }
 
-// ═══ SerpAPI 百度 4방향 검색 (大众点评 / 小红书 / 知乎 / 美团) ═══
-async function searchBaiduMulti(keyword: string): Promise<{
-  lines: string[];
-  rawItems: Array<{ link?: string; title?: string; snippet?: string }>;
-  urls: Array<{ url: string; title: string }>;
-}> {
-  const apiKey = process.env.SERPAPI_KEY;
-  if (!apiKey) return { lines: [], rawItems: [], urls: [] };
+const keywordExtractPrompt = `아래 한국어 질문에서 검색 키워드만 추출해서 중국어로 변환해줘.
 
-  const queries = [
-    keyword + " 大众点评 评价",
-    keyword + " 小红书 推荐",
-    keyword + " 知乎",
-    keyword + " 美团 评价",
-  ];
-  const sources = ["大众点评", "小红书", "知乎", "美团"];
-  const allResults: string[] = [];
-  const rawItems: Array<{ link?: string; title?: string; snippet?: string }> = [];
+규칙:
+1. "알려줘", "추천해줘", "어떻게", "뭐야" 같은 요청어는 제거
+2. 핵심 명사/장소/카테고리만 추출
+3. 칭다오(青岛) 관련이면 "青岛"을 앞에 붙여
+4. 결과만 출력, 다른 말 하지마
+
+예시:
+"청양 맛집 추천해줘" → "青岛城阳区 美食"
+"한국슈퍼 알려줘" → "青岛 韩国超市"
+"출입경관리국 어디야" → "青岛 出入境管理局"
+"비자 연장 어떻게 해" → "青岛 签证延期 流程"
+"병원 추천해줘" → "青岛 韩语医院"
+"깡통집 알려줘" → "青岛 缸桶屋"
+"칭다오에서 폭행당했어" → "在青岛被打 怎么办 报警"
+"집 구하고 싶어" → "青岛 租房"`;
+
+type SearchStrategyRow = {
+  baidu: string[];
+  useAmap: boolean;
+  amapType?: string;
+};
+
+const searchStrategy: Record<string, SearchStrategyRow> = {
+  맛집: {
+    baidu: ["大众点评 评价", "小红书 推荐", "美团 评价", "知乎 推荐"],
+    useAmap: true,
+    amapType: "050000",
+  },
+  쇼핑: {
+    baidu: ["大众点评", "小红书", "百度地图"],
+    useAmap: true,
+    amapType: "060000",
+  },
+  의료: {
+    baidu: ["医院 韩语", "知乎 推荐", "百度 评价"],
+    useAmap: true,
+    amapType: "090000",
+  },
+  행정: {
+    baidu: ["流程 材料", "知乎", "百度知道", "最新政策"],
+    useAmap: true,
+    amapType: "130000",
+  },
+  부동산: {
+    baidu: ["租房", "58同城", "知乎", "小红书"],
+    useAmap: false,
+  },
+  교육: {
+    baidu: ["学校", "知乎", "小红书"],
+    useAmap: true,
+    amapType: "141200",
+  },
+  교통: {
+    baidu: ["交通", "百度地图", "知乎"],
+    useAmap: false,
+  },
+  생활: {
+    baidu: ["办理 流程", "知乎", "百度知道"],
+    useAmap: true,
+  },
+  긴급: {
+    baidu: ["怎么办", "知乎", "百度知道", "法律"],
+    useAmap: false,
+  },
+  일반: {
+    baidu: ["知乎", "百度知道", "百度百科"],
+    useAmap: false,
+  },
+};
+
+function detectCategory(msg: string): string {
+  const categories: Record<string, string[]> = {
+    맛집: ["맛집", "식당", "먹", "음식", "고기", "치킨", "국밥", "카페", "양꼬치", "맥주", "술집", "맛있"],
+    쇼핑: ["슈퍼", "마트", "쇼핑", "사다", "어디서 사", "물건"],
+    의료: ["병원", "약국", "아프", "치과", "의원", "건강검진", "진료"],
+    행정: ["비자", "출입경", "관리국", "여권", "체류", "등록", "신고", "경찰", "공안", "영사관"],
+    부동산: ["집", "부동산", "임대", "월세", "아파트", "방", "이사"],
+    교육: ["학교", "학원", "유치원", "교육", "입학", "과외"],
+    교통: ["택시", "버스", "지하철", "공항", "기차", "교통"],
+    생활: ["은행", "계좌", "전화", "유심", "택배", "물", "가스", "전기"],
+    긴급: ["폭행", "사기", "도둑", "분실", "사고", "긴급", "응급", "신고"],
+    일반: [],
+  };
+
+  for (const [cat, keywords] of Object.entries(categories)) {
+    if (cat === "일반") continue;
+    if (keywords.some((k) => msg.includes(k))) return cat;
+  }
+  return "일반";
+}
+
+async function searchBaiduMulti(
+  keyword: string,
+  suffixes: string[],
+  apiKey: string
+): Promise<{ lines: string[]; urls: Array<{ url: string; title: string }> }> {
+  if (!apiKey) return { lines: [], urls: [] };
+
+  const queries: string[] = [keyword];
+  for (const suffix of suffixes) {
+    queries.push(keyword + " " + suffix);
+  }
+
+  const allTexts: string[] = [];
   const seenUrl = new Set<string>();
   const urls: Array<{ url: string; title: string }> = [];
 
   await Promise.all(
-    queries.map(async (q, i) => {
+    queries.slice(0, 4).map(async (q) => {
       try {
-        const url =
+        const serpUrl =
           "https://serpapi.com/search.json?engine=baidu&q=" +
           encodeURIComponent(q) +
           "&api_key=" +
           apiKey;
-        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const res = await fetch(serpUrl, { signal: AbortSignal.timeout(8000) });
         if (!res.ok) return;
         const data = (await res.json()) as {
           organic_results?: Array<{ title?: string; snippet?: string; link?: string }>;
@@ -209,23 +297,15 @@ async function searchBaiduMulti(keyword: string): Promise<{
 
         if (data.organic_results) {
           for (const item of data.organic_results.slice(0, 5)) {
-            allResults.push(
-              "[" +
-                sources[i] +
-                "] " +
-                (item.title || "") +
-                ": " +
-                (item.snippet || "").slice(0, 300)
-            );
-            rawItems.push({
-              link: item.link,
-              title: item.title,
-              snippet: item.snippet,
-            });
+            const snippet = (item.snippet || "").slice(0, 300);
+            const title = item.title || "";
+            if (snippet.length > 20) {
+              allTexts.push(title + ": " + snippet);
+            }
             const link = item.link?.trim();
             if (link && !seenUrl.has(link)) {
               seenUrl.add(link);
-              urls.push({ url: link, title: item.title || "" });
+              urls.push({ url: link, title });
             }
           }
         }
@@ -235,8 +315,16 @@ async function searchBaiduMulti(keyword: string): Promise<{
     })
   );
 
-  console.log("=== 百度 4방향 검색 결과: " + allResults.length + "개, URL " + urls.length + "개 ===");
-  return { lines: allResults, rawItems, urls };
+  console.log(
+    "=== 百度 " +
+      Math.min(queries.length, 4) +
+      "개 검색 → 결과 " +
+      allTexts.length +
+      "개, URL " +
+      urls.length +
+      "개 ==="
+  );
+  return { lines: allTexts, urls };
 }
 
 // ═══ 네이버 Open API (SerpAPI 실패 시 폴백) ═══
@@ -676,6 +764,10 @@ async function getCachedReviewsForQuery(searchQueryZh: string): Promise<RowDataP
   }
 }
 
+async function getCachedReviews(searchQueryZh: string): Promise<RowDataPacket[]> {
+  return getCachedReviewsForQuery(searchQueryZh);
+}
+
 export async function POST(request: Request) {
   let body: {
     messages?: unknown;
@@ -713,6 +805,20 @@ export async function POST(request: Request) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       };
       try {
+        if (Math.random() < 0.01) {
+          try {
+            await pool.query(
+              "DELETE FROM search_cache WHERE cached_at < DATE_SUB(NOW(), INTERVAL 7 DAY)"
+            );
+            await pool.query(
+              "DELETE FROM review_cache WHERE cached_at < DATE_SUB(NOW(), INTERVAL 30 DAY)"
+            );
+            console.log("=== 오래된 캐시 정리 완료 ===");
+          } catch {
+            /* ignore */
+          }
+        }
+
         const sendStatus = (text: string) => send({ type: "status", content: text });
 
         const rawLoc = body.userLocation as { lat?: unknown; lng?: unknown } | undefined;
@@ -758,6 +864,9 @@ export async function POST(request: Request) {
         let totalSources = 0;
         let searchContext = "";
         let usedCache = false;
+        let amapOpts: AmapSearchOptions = userLocation
+          ? { sortrule: 1, offset: 20, location: `${userLocation.lng},${userLocation.lat}` }
+          : { sortrule: 2, offset: 20 };
 
         const cached = await getCachedSearch(processedMessage, {
           maxAgeDays: body.cacheMaxAgeDays,
@@ -817,8 +926,6 @@ export async function POST(request: Request) {
           sendStatus("✅ 캐시에서 데이터를 찾았어요!");
         }
 
-        const amapOpts = { sortrule: 2 as const, offset: 20 as const };
-
         const appendKbContext = (kbRows: RowDataPacket[]) => {
           if (!Array.isArray(kbRows) || kbRows.length === 0) return;
           searchContext += "\n\n=== BabaBang 지식 베이스 ===\n";
@@ -841,22 +948,20 @@ export async function POST(request: Request) {
         } else {
           const hasKorean = /[가-힣]/.test(processedMessage);
           if (hasKorean) {
-            sendStatus("🌐 검색어 번역중...");
+            sendStatus("🔍 검색 키워드 추출중...");
             try {
               const transRes = await fetch("https://api.openai.com/v1/chat/completions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
-                signal: AbortSignal.timeout(5000),
+                signal: AbortSignal.timeout(8000),
                 body: JSON.stringify({
                   model: "gpt-4o-mini",
                   temperature: 0,
-                  max_tokens: 100,
+                  max_tokens: 200,
                   messages: [
                     {
                       role: "user",
-                      content:
-                        "아래 한국어를 중국어로 번역해. 번역만 출력해. 다른 말 하지마. 장소명, 기관명, 카테고리 등을 정확히 번역해. '맛집'은 '美食'으로, '고기집'은 '烤肉'으로, '병원'은 '医院'으로 번역해. 지역명은 정확한 중국어 행정구역명으로 번역해.\n\n" +
-                        processedMessage,
+                      content: keywordExtractPrompt + "\n\n" + processedMessage,
                     },
                   ],
                 }),
@@ -864,16 +969,20 @@ export async function POST(request: Request) {
               const transData = (await transRes.json()) as {
                 choices?: Array<{ message?: { content?: string } }>;
               };
-              const translated = transData.choices?.[0]?.message?.content?.trim();
-              if (translated && translated.length > 0) {
-                searchQueryZh = translated;
-                console.log("=== 번역: " + processedMessage + " → " + searchQueryZh + " ===");
+              const extracted = transData.choices?.[0]?.message?.content?.trim();
+              if (extracted && extracted.length > 0) {
+                searchQueryZh = extracted;
+                console.log("=== 키워드 추출: " + processedMessage + " → " + searchQueryZh + " ===");
               }
             } catch {
-              console.log("=== 번역 실패, 원문 사용 ===");
+              console.log("=== 키워드 추출 실패, 원문 사용 ===");
             }
           }
         }
+
+        const queryCategory = detectCategory(userMessage);
+        console.log("=== 질문 카테고리: " + queryCategory + " ===");
+        const strategy = searchStrategy[queryCategory] || searchStrategy["일반"];
 
         console.log("=== 검색 키워드: 高德/百度=" + searchQueryZh + ", 네이버=" + processedMessage + " ===");
 
@@ -883,9 +992,15 @@ export async function POST(request: Request) {
             ? `${districtZh} ${searchQueryZh}`.trim()
             : searchQueryZh;
 
-        const amapKeywordsFromDict = findCategories(searchQueryZh);
-        const baseCategoryWords = amapKeywordsFromDict.length > 0 ? amapKeywordsFromDict : ["美食"];
-        const extraCategoryZh = detectExtraCategoryZh(processedMessage + searchQueryZh);
+        amapOpts = (() => {
+          const base: AmapSearchOptions = { sortrule: 2, offset: 20 };
+          if (strategy.amapType) base.types = strategy.amapType;
+          if (userLocation) {
+            base.sortrule = 1;
+            base.location = `${userLocation.lng},${userLocation.lat}`;
+          }
+          return base;
+        })();
 
         const amapKeywordList: string[] = [];
         const pushAmapKw = (kw: string) => {
@@ -894,37 +1009,43 @@ export async function POST(request: Request) {
           if (!amapKeywordList.includes(t)) amapKeywordList.push(t);
         };
 
-        if (searchQueryZh.trim()) {
-          const q =
-            districtZh && !searchQueryZh.includes(districtZh)
-              ? `${districtZh} ${searchQueryZh}`.trim()
-              : searchQueryZh.trim();
-          pushAmapKw(q);
+        if (strategy.useAmap) {
+          const amapKeywordsFromDict = findCategories(searchQueryZh);
+          const baseCategoryWords = amapKeywordsFromDict.length > 0 ? amapKeywordsFromDict : ["美食"];
+          const extraCategoryZh = detectExtraCategoryZh(processedMessage + searchQueryZh);
+
+          if (searchQueryZh.trim()) {
+            const q =
+              districtZh && !searchQueryZh.includes(districtZh)
+                ? `${districtZh} ${searchQueryZh}`.trim()
+                : searchQueryZh.trim();
+            pushAmapKw(q);
+          }
+
+          for (const kw of baseCategoryWords) {
+            const q =
+              districtZh && !kw.includes(districtZh) ? `${districtZh} ${kw}`.trim() : kw;
+            pushAmapKw(q);
+          }
+
+          for (const ek of extraCategoryZh.slice(0, 2)) {
+            pushAmapKw(districtZh ? `${districtZh} ${ek}`.trim() : ek);
+          }
+
+          if (
+            processedMessage.includes("맛집") ||
+            searchQueryZh.includes("美食") ||
+            searchQueryZh.includes("餐")
+          ) {
+            pushAmapKw(districtZh ? `${districtZh} 美食`.trim() : "美食");
+          }
+
+          if (amapKeywordList.length === 0) {
+            pushAmapKw(districtZh ? `${districtZh} 美食`.trim() : "美食");
+          }
         }
 
-        for (const kw of baseCategoryWords) {
-          const q =
-            districtZh && !kw.includes(districtZh) ? `${districtZh} ${kw}`.trim() : kw;
-          pushAmapKw(q);
-        }
-
-        for (const ek of extraCategoryZh.slice(0, 2)) {
-          pushAmapKw(districtZh ? `${districtZh} ${ek}`.trim() : ek);
-        }
-
-        if (
-          processedMessage.includes("맛집") ||
-          searchQueryZh.includes("美食") ||
-          searchQueryZh.includes("餐")
-        ) {
-          pushAmapKw(districtZh ? `${districtZh} 美食`.trim() : "美食");
-        }
-
-        if (amapKeywordList.length === 0) {
-          pushAmapKw(districtZh ? `${districtZh} 美食`.trim() : "美食");
-        }
-
-        const amapKeywords = amapKeywordList.slice(0, 10);
+        const amapKeywords = strategy.useAmap ? amapKeywordList.slice(0, 10) : [];
 
         const newsKeywords = [
           "뉴스",
@@ -950,16 +1071,26 @@ export async function POST(request: Request) {
           return q;
         })();
 
-        sendStatus("🔍 大众点评 리뷰 검색중...");
-        sendStatus("📕 小红书 후기 검색중...");
-        sendStatus("💬 知乎 정보 검색중...");
-        sendStatus("🍽️ 美团 평가 검색중...");
-        const baiduPack = await searchBaiduMulti(baiduQuery);
-        baiduResults = baiduPack.lines;
-        const baiduUrlResults = baiduPack.urls;
-
         sendStatus("🗄️ BabaBang 데이터베이스 검색중...");
-        const cachedReviewRows = await getCachedReviewsForQuery(searchQueryZh);
+        const cachedReviewRows = await getCachedReviews(searchQueryZh);
+        let skipBaidu = false;
+        if (cachedReviewRows.length >= 10) {
+          console.log(
+            "=== DB에 충분한 리뷰 있음 (" + cachedReviewRows.length + "개), 百度 검색 스킵 ==="
+          );
+          skipBaidu = true;
+          baiduResults = [];
+        }
+
+        const serpKey = process.env.SERPAPI_KEY || "";
+        let baiduUrlResults: Array<{ url: string; title: string }> = [];
+
+        if (!skipBaidu) {
+          sendStatus("🔍 百度 검색중...");
+          const baiduPack = await searchBaiduMulti(baiduQuery, strategy.baidu, serpKey);
+          baiduResults = baiduPack.lines;
+          baiduUrlResults = baiduPack.urls;
+        }
 
         sendStatus("🇰🇷 네이버 블로그/카페 검색중...");
         allNaverItems = await fetchNaverItemsSerpOrFallback(searchQuery, sortType, startPos);
@@ -967,8 +1098,10 @@ export async function POST(request: Request) {
         chinazoaData = await crawlChinazoa(processedMessage);
 
         sendStatus("🗺️ 高德地图에서 가게 정보 검색중...");
-        const mainAmapResults = await amapSearch(mainQueryForAmap, "青岛", amapOpts);
-        if (mainAmapResults.length < 10) {
+        const mainAmapResults: AmapPoi[] = strategy.useAmap
+          ? await amapSearch(mainQueryForAmap, "青岛", amapOpts)
+          : [];
+        if (strategy.useAmap && mainAmapResults.length < 10) {
           const categoryMapZh: Record<string, string[]> = {
             美食: ["餐厅", "饭店", "小吃"],
             烤肉: ["烧烤", "韩式烤肉", "肉"],
@@ -983,7 +1116,7 @@ export async function POST(request: Request) {
               for (const alt of alternatives.slice(0, 2)) {
                 const altKeyword = searchQueryZh.replace(key, alt);
                 const altResults = await amapSearch(altKeyword, "青岛", {
-                  sortrule: 2,
+                  ...amapOpts,
                   offset: 10,
                 });
                 mainAmapResults.push(...altResults);
@@ -1003,7 +1136,7 @@ export async function POST(request: Request) {
         const categoryAmapResults = categoryAmapBaiduNews.slice(0, amapCount) as Array<Array<AmapPoi>>;
         newsResults = (categoryAmapBaiduNews[amapCount] as string[]) || [];
         shopAmapResults = [];
-        if (matchedShops.length > 0) {
+        if (strategy.useAmap && matchedShops.length > 0) {
           const shopSearchPromises = matchedShops.slice(0, 5).map((shop) => {
             if (!shop.zh) return Promise.resolve([] as AmapPoi[]);
             const searchName = shop.zh.replace(/[\(\)（）]/g, " ").trim();
@@ -1015,7 +1148,7 @@ export async function POST(request: Request) {
         }
 
         let allAmapPois = [...mainAmapResults, ...(categoryAmapResults as Array<Array<AmapPoi>>).flat()];
-        if (userLocation) {
+        if (userLocation && strategy.useAmap) {
           const aroundBatches = await Promise.all(
             amapKeywords.map((kw) =>
               amapAround(userLocation.lng, userLocation.lat, kw, 5000).catch(() => [] as AmapPoi[])
@@ -1033,7 +1166,7 @@ export async function POST(request: Request) {
           if (n) seenAmapNames.add(n);
         }
 
-        if (uniquePois.length < 5 && searchQueryZh.trim()) {
+        if (strategy.useAmap && uniquePois.length < 5 && searchQueryZh.trim()) {
           try {
             const broadQuery = searchQueryZh.replace(/[区市]/g, "").trim();
             if (broadQuery) {
@@ -1102,7 +1235,20 @@ export async function POST(request: Request) {
           totalSources += baiduResults.length;
         }
 
-        if (cachedReviewRows.length > 0) {
+        if (skipBaidu && cachedReviewRows.length >= 10) {
+          searchContext += "=== 축적된 리뷰 데이터 ===\n";
+          for (const r of cachedReviewRows.slice(0, 15)) {
+            const row = r as { source?: string; review_text?: string };
+            searchContext +=
+              "[" +
+              String(row.source ?? "") +
+              "] " +
+              String(row.review_text ?? "").slice(0, 300) +
+              "\n";
+          }
+          searchContext += "\n";
+          totalSources += cachedReviewRows.length;
+        } else if (!skipBaidu && cachedReviewRows.length > 0) {
           searchContext += "=== BabaBang 축적 데이터 ===\n";
           for (const r of cachedReviewRows.slice(0, 10)) {
             const row = r as { source?: string; shop_name?: string; review_text?: string };
@@ -1219,24 +1365,40 @@ export async function POST(request: Request) {
 
         sendStatus("📊 " + totalSources + "개 결과 분석중...");
 
-        const blockedDomains = ["dianping.com", "xiaohongshu.com", "meituan.com"];
-        crawlableUrls = baiduUrlResults
-          .filter((item) => !blockedDomains.some((d) => item.url.includes(d)))
-          .slice(0, 5)
-          .map((item) => item.url);
-        if (crawlableUrls.length > 0) {
-          sendStatus("📄 상세 정보 크롤링중... (" + crawlableUrls.length + "개 페이지)");
+        const blockedDomains = [
+          "dianping.com",
+          "xiaohongshu.com",
+          "meituan.com",
+          "douyin.com",
+        ];
+        const crawlableUrlItems = baiduUrlResults
+          .filter(
+            (item) =>
+              item.url &&
+              !blockedDomains.some((d) => item.url.includes(d)) &&
+              item.url.startsWith("http")
+          )
+          .slice(0, 5);
+        if (crawlableUrlItems.length > 0) {
+          sendStatus("📄 상세 정보 크롤링중... (" + crawlableUrlItems.length + "개)");
         }
-        crawledContents = await Promise.all(crawlableUrls.map((url) => firecrawlScrape(url)));
-        totalSources += crawledContents.filter((c) => c.length > 100).length;
+        const crawledRaw = await Promise.all(
+          crawlableUrlItems.map((item) => firecrawlScrape(item.url))
+        );
+        const firecrawlPairs = crawlableUrlItems
+          .map((item, i) => ({ url: item.url, text: crawledRaw[i] || "" }))
+          .filter((p) => p.text.length > 200);
+        crawlableUrls = firecrawlPairs.map((p) => p.url);
+        crawledContents = firecrawlPairs.map((p) => p.text);
+        const fullTexts = crawledContents;
+        totalSources += fullTexts.length;
 
-        const firecrawlContext = crawledContents
-          .filter((c) => c.length > 100)
-          .map((c, i) => "[상세 전문 " + (i + 1) + "]\n" + c.slice(0, 2000))
-          .join("\n\n");
-
-        if (firecrawlContext) {
-          searchContext += "\n\n=== 상세 전문 크롤링 결과 ===\n" + firecrawlContext;
+        if (fullTexts.length > 0) {
+          searchContext += "\n\n=== 상세 전문 정보 ===\n";
+          fullTexts.forEach((text, i) => {
+            searchContext += "[전문 " + (i + 1) + "] " + text.slice(0, 2000) + "\n\n";
+          });
+          console.log("=== Firecrawl 전문 " + fullTexts.length + "개 크롤링 성공 ===");
         }
 
         console.log("=== 분석 보고서 길이: " + searchContext.length + "자 ===");
@@ -1324,7 +1486,7 @@ export async function POST(request: Request) {
         if (crawledContents.length > 0) {
           let fcSaved = 0;
           for (let i = 0; i < crawledContents.length; i++) {
-            if (crawledContents[i].length > 100) {
+            if (crawledContents[i].length > 200) {
               const rid = await cacheReview(
                 {
                   text: crawledContents[i].slice(0, 5000),
@@ -1403,6 +1565,20 @@ export async function POST(request: Request) {
 
         const systemPrompt = `당신은 "아빠방 AI" - 칭다오(青岛) 거주 한국 교민을 위한 전문 생활 컨설턴트입니다.
 
+=== 절대 규칙 ===
+1. 검색 데이터에 없는 전화번호, 주소, 영업시간을 절대 만들어내지 마.
+2. 모르면 '정확한 정보를 찾지 못했어요. 직접 확인이 필요해요' 라고 솔직하게 말해.
+3. 검색 데이터에 있는 정보만 답변해. 추측하지 마.
+4. 전화번호는 검색 결과에 명확히 있을 때만 알려줘.
+5. 가게 추천시 검색 데이터에 있는 가게만 추천해. 데이터에 없는 가게를 추천하지 마.
+6. 가게 정보 답변시 반드시 이 형식으로:
+   가게명(中文名) ⭐평점
+   📍 주소 (검색 데이터에 있을때만)
+   📞 전화 (검색 데이터에 있을때만)
+   💰 인당 XX위안 (검색 데이터에 있을때만)
+   🕐 영업시간 (검색 데이터에 있을때만)
+   정보 없는 항목은 표시하지 마.
+
 === 당신의 성격 ===
 - 칭다오에 10년 이상 거주한 전문가
 - 법률, 의료, 비자, 부동산, 사업, 교육 등 모든 분야에 정통
@@ -1444,11 +1620,20 @@ export async function POST(request: Request) {
 - 지역은 유저 위치 기반 자동 추천
 - "현재 위치에서 가장 가까운 곳으로 추천해드릴게요!" 안내
 
-=== 체크리스트 요청시 ===
-- 절차나 준비물 질문이면 체크리스트 형태로 답변
-- 각 항목 '□' 로 시작
-- 마지막에 관련 기관의 주소, 영업시간, 전화번호
-- 칭다오 기준 최신 정보 제공${userInterestsLine}`;
+=== 체크리스트 규칙 ===
+유저가 다음 키워드를 사용하면 반드시 □ 체크리스트 형태로 답변해:
+- '준비물', '어떻게 해', '방법', '절차', '과정', '필요한 것', '뭐 필요', '연장', '개설', '등록', '신청', '만들기'
+
+체크리스트 형식:
+□ 항목1 (구체적 설명)
+□ 항목2 (구체적 설명)
+□ 항목3 (구체적 설명)
+
+마지막에 관련 기관:
+📍 기관명: 주소
+🕐 업무시간
+📞 전화번호
+💡 팁: 현실적인 조언${userInterestsLine}`;
 
         const userContent = searchContext
           ? `질문: ${userMessage}

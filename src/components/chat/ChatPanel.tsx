@@ -461,6 +461,7 @@ export function ChatPanel() {
   ];
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const chatTextareaRef = useRef<HTMLTextAreaElement>(null);
   const voiceRecognitionRef = useRef<{ stop: () => void } | null>(null);
   const [voiceTranslateMode, setVoiceTranslateMode] = useState(false);
   const [voiceLang, setVoiceLang] = useState<"ko" | "zh">("ko");
@@ -493,6 +494,16 @@ export function ChatPanel() {
       setVoiceMicPhase("idle");
     }
   }, [voiceTranslateMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const warm = () => {
+      window.speechSynthesis.getVoices();
+    };
+    warm();
+    window.speechSynthesis.addEventListener("voiceschanged", warm);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", warm);
+  }, []);
 
   const reportInaccurate = async () => {
     const kw = lastAiUserMessageRef.current.trim();
@@ -541,12 +552,28 @@ export function ChatPanel() {
     reader.readAsDataURL(file);
   };
 
-  const playVoiceTts = (text: string) => {
-    if (!text.trim()) return;
+  const speakText = (text: string, lang: "ko" | "zh") => {
+    if (!text.trim() || typeof window === "undefined") return;
+    if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = voiceLang === "ko" ? "zh-CN" : "ko-KR";
+    utterance.lang = lang === "ko" ? "ko-KR" : "zh-CN";
     utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find((v) => {
+      if (lang === "zh") {
+        return (
+          v.lang.includes("zh") &&
+          (v.name.includes("Ting") || v.name.includes("Google") || v.name.includes("Microsoft"))
+        );
+      }
+      return (
+        v.lang.includes("ko") &&
+        (v.name.includes("Google") || v.name.includes("Microsoft") || v.name.includes("Yuna"))
+      );
+    });
+    if (preferredVoice) utterance.voice = preferredVoice;
     window.speechSynthesis.speak(utterance);
   };
 
@@ -589,7 +616,7 @@ export function ChatPanel() {
         { original: trimmed, translated, lang: voiceLang },
       ]);
       setVoiceMicPhase("done");
-      playVoiceTts(translated);
+      speakText(translated, voiceLang === "ko" ? "zh" : "ko");
     } catch {
       setVoiceResult((prev) => ({
         ...prev,
@@ -747,6 +774,9 @@ export function ChatPanel() {
     addChatMessage({ role: "user", text: trimmed });
     addChatMessage({ role: "ai", text: "" });
     setInput("");
+    if (chatTextareaRef.current) {
+      chatTextareaRef.current.style.height = "auto";
+    }
     setIsStreaming(true);
     setStreamReplyStarted(false);
 
@@ -764,7 +794,7 @@ export function ChatPanel() {
         body: JSON.stringify({
           messages: messagesForApi,
           userId: currentUserId ?? 1,
-          userLocation: useStore.getState().userLocation,
+          userLocation: useStore.getState().userLocation ?? null,
           cacheMaxAgeDays: getCacheMaxAgeDays(),
           localShops:
             typeof window !== "undefined"
@@ -1458,7 +1488,7 @@ export function ChatPanel() {
             </p>
             {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
             <div
-              className="chat-input-area border-t border-white/10 flex w-full min-w-0 overflow-hidden items-center"
+              className="chat-input-area border-t border-white/10 flex w-full min-w-0 overflow-hidden items-end"
               style={{
                 display: "flex",
                 gap: 8,
@@ -1497,14 +1527,33 @@ export function ChatPanel() {
               >
                 🎙️
               </motion.button>
-              <input
-                type="text"
+              <textarea
+                ref={chatTextareaRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
+                rows={1}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void sendMessage(input);
+                  }
+                }}
                 placeholder={t.placeholder}
                 className="min-w-0 flex-1 bg-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-accent/50"
-                style={{ fontSize: "16px", flex: 1, minWidth: 0 }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 16,
+                  resize: "none",
+                  overflow: "hidden",
+                  lineHeight: 1.4,
+                  maxHeight: 120,
+                  fontFamily: "inherit",
+                }}
               />
               <motion.button
                 type="button"
@@ -1600,19 +1649,59 @@ export function ChatPanel() {
                     >
                       {voiceLang === "ko" ? "🇨🇳 번역" : "🇰🇷 번역"}
                     </div>
-                    <div
-                      className="flex items-center gap-2 text-lg"
-                      style={{ color: "#a78bfa" }}
-                    >
-                      {voiceMicPhase === "translating" ? (
-                        <>
-                          <span className="inline-block animate-spin text-white/60">⏳</span>
-                          <span>...</span>
-                        </>
-                      ) : (
-                        voiceResult.translated || "번역 결과가 여기에 표시돼요"
-                      )}
-                    </div>
+                    {voiceMicPhase === "translating" ? (
+                      <div
+                        className="flex items-center gap-2 text-lg"
+                        style={{ color: "#a78bfa" }}
+                      >
+                        <span className="inline-block animate-spin text-white/60">⏳</span>
+                        <span>...</span>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 18,
+                            color: "#a78bfa",
+                            flex: 1,
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {voiceResult.translated || "번역 결과가 여기에 표시돼요"}
+                        </span>
+                        {voiceResult.translated ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              speakText(
+                                voiceResult.translated,
+                                voiceLang === "ko" ? "zh" : "ko"
+                              )
+                            }
+                            style={{
+                              background: "rgba(108,92,231,0.2)",
+                              border: "1px solid rgba(108,92,231,0.3)",
+                              borderRadius: "50%",
+                              width: 36,
+                              height: 36,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                            aria-label={lang === "zh" ? "朗读" : "듣기"}
+                          >
+                            🔊
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1658,12 +1747,46 @@ export function ChatPanel() {
                           </div>
                           <div
                             style={{
-                              fontSize: 14,
-                              color: "#a78bfa",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
                               padding: "4px 12px",
+                              maxWidth: "100%",
                             }}
                           >
-                            → {item.translated}
+                            <span
+                              style={{
+                                fontSize: 14,
+                                color: "#a78bfa",
+                                flex: 1,
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              → {item.translated}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                speakText(
+                                  item.translated,
+                                  item.lang === "ko" ? "zh" : "ko"
+                                )
+                              }
+                              style={{
+                                background: "rgba(108,92,231,0.2)",
+                                border: "1px solid rgba(108,92,231,0.3)",
+                                borderRadius: "50%",
+                                width: 36,
+                                height: 36,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                              }}
+                              aria-label={lang === "zh" ? "朗读" : "듣기"}
+                            >
+                              🔊
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -1740,16 +1863,6 @@ export function ChatPanel() {
 
                   <div style={{ width: 48 }} />
                 </div>
-                {voiceMicPhase === "done" && voiceResult.translated ? (
-                  <button
-                    type="button"
-                    onClick={() => playVoiceTts(voiceResult.translated)}
-                    className="-mt-1 pb-2 text-center text-xs"
-                    style={{ color: "rgba(255,255,255,0.45)" }}
-                  >
-                    🔊 다시 듣기
-                  </button>
-                ) : null}
               </div>
             ) : null}
           </motion.aside>

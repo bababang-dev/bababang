@@ -16,6 +16,7 @@ export type AmapSearchOptions = {
   sortrule?: number;
   offset?: number;
   location?: string;
+  types?: string;
 };
 
 function mapAmapPois(data: {
@@ -59,17 +60,22 @@ export async function amapSearch(
   try {
     const key = process.env.AMAP_API_KEY;
     if (!key) return [];
+    const hasLoc = Boolean(options?.location && String(options.location).trim() !== "");
+    const sortrule = hasLoc ? String(options?.sortrule ?? 1) : String(options?.sortrule ?? 2);
     const params = new URLSearchParams({
       keywords: keyword,
       city,
       offset: String(options?.offset ?? 20),
-      sortrule: String(options?.sortrule ?? 2),
+      sortrule,
       extensions: "all",
       key,
       output: "json",
     });
     if (options?.location) {
       params.set("location", options.location);
+    }
+    if (options?.types) {
+      params.set("types", options.types);
     }
     const url = `https://restapi.amap.com/v3/place/text?${params.toString()}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });

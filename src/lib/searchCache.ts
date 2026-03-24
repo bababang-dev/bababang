@@ -29,23 +29,22 @@ export function hashQuery(query: string): string {
   return crypto.createHash("md5").update(normalized).digest("hex");
 }
 
-function clampCacheDays(raw: unknown): number {
-  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
-  if (!Number.isFinite(n)) return 7;
-  return Math.min(90, Math.max(1, Math.floor(n)));
-}
-
-// 캐시에서 검색 결과 가져오기 (기본 7일 이내, maxAgeDays로 조절)
+// 캐시에서 검색 결과 가져오기 (기본 7일 이내만 유효, maxAgeDays로 조정 가능)
 export async function getCachedSearch(
   query: string,
   options?: { maxAgeDays?: unknown }
 ): Promise<{ cache: SearchCacheRow; shops: RowDataPacket[]; reviews: RowDataPacket[] } | null> {
   try {
-    const days = clampCacheDays(options?.maxAgeDays);
+    const maxAgeDays =
+      typeof options?.maxAgeDays === "number" &&
+      Number.isFinite(options.maxAgeDays) &&
+      options.maxAgeDays > 0
+        ? Math.floor(options.maxAgeDays)
+        : 7;
     const hash = hashQuery(query);
     const [rows] = await pool.query(
       "SELECT * FROM search_cache WHERE query_hash = ? AND cached_at > DATE_SUB(NOW(), INTERVAL ? DAY)",
-      [hash, days]
+      [hash, maxAgeDays]
     );
     const list = rows as SearchCacheRow[];
     if (!Array.isArray(list) || list.length === 0) return null;
