@@ -1620,21 +1620,76 @@ export function ChatPanel() {
                     ) : null}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setVoiceLang((v) => (v === "ko" ? "zh" : "ko"))}
-                    className="flex w-full items-center justify-center gap-2 rounded-full border px-5 py-2.5 text-sm text-white"
+                  <div
                     style={{
-                      background: "rgba(108,92,231,0.2)",
-                      borderColor: "rgba(108,92,231,0.3)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 16,
+                      padding: "12px 0",
                     }}
                   >
-                    <span>🇰🇷</span>
-                    <span>한→中</span>
-                    <span>🔄</span>
-                    <span>中→한</span>
-                    <span>🇨🇳</span>
-                  </button>
+                    <div
+                      style={{
+                        padding: "10px 20px",
+                        borderRadius: 12,
+                        background:
+                          voiceLang === "ko"
+                            ? "rgba(108,92,231,0.3)"
+                            : "rgba(255,255,255,0.05)",
+                        border:
+                          voiceLang === "ko"
+                            ? "2px solid #6c5ce7"
+                            : "1px solid rgba(255,255,255,0.1)",
+                        color:
+                          voiceLang === "ko" ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                        fontWeight: voiceLang === "ko" ? 700 : 400,
+                        fontSize: 15,
+                      }}
+                    >
+                      🇰🇷 한국어
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVoiceLang((v) => (v === "ko" ? "zh" : "ko"))}
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: "50%",
+                        background: "linear-gradient(135deg, #6c5ce7, #a78bfa)",
+                        border: "none",
+                        color: "white",
+                        fontSize: 18,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: "0 2px 10px rgba(108,92,231,0.3)",
+                      }}
+                      aria-label={lang === "zh" ? "切换语言" : "언어 전환"}
+                    >
+                      🔄
+                    </button>
+                    <div
+                      style={{
+                        padding: "10px 20px",
+                        borderRadius: 12,
+                        background:
+                          voiceLang === "zh"
+                            ? "rgba(239,68,68,0.2)"
+                            : "rgba(255,255,255,0.05)",
+                        border:
+                          voiceLang === "zh"
+                            ? "2px solid #ef4444"
+                            : "1px solid rgba(255,255,255,0.1)",
+                        color:
+                          voiceLang === "zh" ? "#f87171" : "rgba(255,255,255,0.4)",
+                        fontWeight: voiceLang === "zh" ? 700 : 400,
+                        fontSize: 15,
+                      }}
+                    >
+                      🇨🇳 中文
+                    </div>
+                  </div>
 
                   <div
                     className="min-h-[4.5rem] rounded-2xl border p-4"
