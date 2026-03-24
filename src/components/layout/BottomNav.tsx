@@ -25,10 +25,19 @@ const activeColor = "#6c5ce7";
 
 export function BottomNav() {
   const { activeTab, setActiveTab, lang } = useStore();
-  const isKeyboardOpen = useStore((s) => s.isKeyboardOpen);
+  const hideBottomNav = useStore(
+    (s) =>
+      s.chatOpen ||
+      s.writePostOpen ||
+      s.promotionModalOpen ||
+      s.loginModalOpen ||
+      s.isKeyboardOpen ||
+      Boolean(s.detailView) ||
+      s.profileEditOpen
+  );
   const t = i18n[lang].tab;
 
-  if (isKeyboardOpen) return null;
+  if (hideBottomNav) return null;
 
   return (
     <nav className="bottom-nav-fixed">

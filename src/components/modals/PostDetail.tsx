@@ -18,6 +18,8 @@ export function PostDetail() {
   const title = lang === "zh" ? post.titleZh : post.title;
   const time = lang === "zh" ? post.timeZh : post.time;
   const content = lang === "zh" ? post.contentZh : post.content;
+  const isAnonCategory = post.category === "익명";
+  const displayAuthor = isAnonCategory ? "익명" : post.author;
   const tags = lang === "zh" ? post.tagsZh : post.tags;
   const isChineseText = /[\u4e00-\u9fff]/.test(content);
   const imageUrls = post.images
@@ -58,10 +60,22 @@ export function PostDetail() {
         transition={{ type: "spring", damping: 28, stiffness: 300 }}
         className="fixed bottom-0 left-0 right-0 z-[61] max-w-mobile mx-auto rounded-t-3xl bg-baba-light text-black max-h-[85vh] flex flex-col"
       >
-        <div className="flex items-center justify-between p-4 border-b border-black/5">
-          <span className="text-xs px-2 py-1 rounded-full bg-accent/20 text-accent">
-            {category}
-          </span>
+        <div className="flex items-center justify-between p-4 border-b border-black/5 gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            <span className="text-xs px-2 py-1 rounded-full bg-accent/20 text-accent shrink-0">
+              {category}
+            </span>
+            {post.category === "중고거래" && post.extraData?.price ? (
+              <span className="text-xs px-2 py-1 rounded-full bg-[#ffd32a]/25 text-[#b8860b] font-semibold">
+                ¥{post.extraData.price}
+              </span>
+            ) : null}
+            {post.category === "구인구직" && post.extraData?.jobType ? (
+              <span className="text-xs px-2 py-1 rounded-full bg-black/10 text-black/80">
+                {post.extraData.jobType}
+              </span>
+            ) : null}
+          </div>
           <motion.button
             type="button"
             onClick={() => setDetailView(null)}
@@ -102,7 +116,7 @@ export function PostDetail() {
           )}
           <h2 className="font-outfit text-lg font-semibold">{title}</h2>
           <div className="flex items-center gap-2 mt-2 text-sm text-black/60">
-            <span>{post.author}</span>
+            <span>{displayAuthor}</span>
             <span>·</span>
             <span>{time}</span>
           </div>

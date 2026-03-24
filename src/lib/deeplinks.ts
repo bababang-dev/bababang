@@ -1,59 +1,59 @@
-// 高德地图 길찾기
+// 高德地图 — 좌표 우선, 없으면 키워드 검색 (window.open)
 export function openAmap(destLat: string, destLng: string, destName: string) {
-  // 高德 앱 딥링크 (좌표는 GCJ-02 좌표계)
-  const appUrl = `amapuri://route/plan/?dlat=${destLat}&dlon=${destLng}&dname=${encodeURIComponent(destName)}&dev=0&t=0`;
-  // 웹 폴백
-  const webUrl = `https://uri.amap.com/navigation?to=${destLng},${destLat},${encodeURIComponent(destName)}&mode=car&callnative=1`;
-
-  tryOpenApp(appUrl, webUrl);
-}
-
-// 百度地图 길찾기
-export function openBaiduMap(destLat: string, destLng: string, destName: string) {
-  // 百度 앱 딥링크
-  const appUrl = `baidumap://map/direction?destination=latlng:${destLat},${destLng}|name:${encodeURIComponent(destName)}&coord_type=gcj02&mode=driving`;
-  // 웹 폴백
-  const webUrl = `https://api.map.baidu.com/direction?destination=latlng:${destLat},${destLng}|name:${encodeURIComponent(destName)}&mode=driving&coord_type=gcj02&output=html`;
-
-  tryOpenApp(appUrl, webUrl);
-}
-
-// 嘀嘀打车 (위챗 미니프로그램으로 호출)
-export function openDidi(destLat: string, destLng: string, destName: string) {
-  // 디디 위챗 미니프로그램 링크
-  const wechatUrl = `weixin://dl/business/?t=didi&dlat=${destLat}&dlng=${destLng}&dname=${encodeURIComponent(destName)}`;
-  // 디디 앱 딥링크
-  const appUrl = `didapinche://booking?flat=&flon=&flat_type=0&tlat=${destLat}&tlon=${destLng}&tname=${encodeURIComponent(destName)}`;
-  // 웹 폴백 (디디 H5)
-  const webUrl = `https://common.diditaxi.com.cn/general/webEntry?wx_app=normal&scene=1&lat=${destLat}&lng=${destLng}&daddr=${encodeURIComponent(destName)}`;
-
-  try {
-    window.location.href = wechatUrl;
-    window.setTimeout(() => {
-      tryOpenApp(appUrl, webUrl);
-    }, 2000);
-  } catch {
-    tryOpenApp(appUrl, webUrl);
+  if (!destLat || !destLng) {
+    const webUrl =
+      "https://uri.amap.com/search?keyword=" + encodeURIComponent(destName) + "&city=青岛";
+    window.open(webUrl, "_blank");
+    return;
   }
+  const webUrl =
+    "https://uri.amap.com/navigation?to=" +
+    destLng +
+    "," +
+    destLat +
+    "," +
+    encodeURIComponent(destName) +
+    "&mode=car&callnative=1";
+  window.open(webUrl, "_blank");
 }
 
-// 앱 열기 시도, 실패시 웹으로
-function tryOpenApp(appUrl: string, webUrl: string) {
-  const start = Date.now();
-  const iframe = document.createElement("iframe");
-  iframe.style.display = "none";
-  iframe.src = appUrl;
-  document.body.appendChild(iframe);
-
-  window.setTimeout(() => {
-    document.body.removeChild(iframe);
-    if (Date.now() - start < 2500) {
-      window.open(webUrl, "_blank");
-    }
-  }, 2000);
+// 百度地图
+export function openBaiduMap(destLat: string, destLng: string, destName: string) {
+  if (!destLat || !destLng) {
+    const webUrl =
+      "https://api.map.baidu.com/place/search?query=" +
+      encodeURIComponent(destName) +
+      "&region=青岛&output=html";
+    window.open(webUrl, "_blank");
+    return;
+  }
+  const webUrl =
+    "https://api.map.baidu.com/direction?destination=latlng:" +
+    destLat +
+    "," +
+    destLng +
+    "|name:" +
+    encodeURIComponent(destName) +
+    "&mode=driving&coord_type=gcj02&output=html";
+  window.open(webUrl, "_blank");
 }
 
-// 지도 선택 액션시트
+// 嘀嘀 — H5 (좌표 없으면 일반 진입)
+export function openDidi(destLat: string, destLng: string, destName: string) {
+  if (!destLat || !destLng) {
+    window.open("https://common.diditaxi.com.cn/general/webEntry?wx_app=normal&scene=1", "_blank");
+    return;
+  }
+  const webUrl =
+    "https://common.diditaxi.com.cn/general/webEntry?wx_app=normal&scene=1&lat=" +
+    destLat +
+    "&lng=" +
+    destLng +
+    "&daddr=" +
+    encodeURIComponent(destName);
+  window.open(webUrl, "_blank");
+}
+
 export function showMapOptions(
   destLat: string,
   destLng: string,

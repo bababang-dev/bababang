@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Send, Sparkles, ThumbsUp, ThumbsDown } from "lucide-react";
+import { X, Send, ThumbsUp, ThumbsDown } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import { i18n } from "@/lib/i18n";
 import type { ShopEntry } from "@/lib/shopDict";
@@ -14,6 +14,26 @@ import { useModalBodyLock } from "@/lib/useModalBodyLock";
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** localStorage 일일 무료 AI 질문 (5회) — 날짜 맞추고 당일 사용 횟수 반환 */
+function syncDailyAiDateAndCount(): number {
+  if (typeof window === "undefined") return 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const savedDate = localStorage.getItem("bababang-ai-date");
+  if (savedDate !== today) {
+    localStorage.setItem("bababang-ai-date", today);
+    localStorage.setItem("bababang-ai-count", "0");
+    return 0;
+  }
+  return parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
+}
+
+function bumpDailyAiCount() {
+  if (typeof window === "undefined") return;
+  syncDailyAiDateAndCount();
+  const c = parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
+  localStorage.setItem("bababang-ai-count", String(c + 1));
 }
 
 function cleanResponse(text: string): string {
@@ -169,8 +189,10 @@ export function ChatPanel() {
     openMapActionSheet,
     currentUserId,
     requireLogin,
+    touchChatActivity,
   } = useStore();
   useModalBodyLock(chatOpen);
+  const [quotaVersion, setQuotaVersion] = useState(0);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamReplyStarted, setStreamReplyStarted] = useState(false);
@@ -195,6 +217,23 @@ export function ChatPanel() {
   const atDailyLimit = isFree && !canAskQuestion();
 
   useEffect(() => {
+    if (chatOpen) setQuotaVersion((v) => v + 1);
+  }, [chatOpen]);
+
+  useEffect(() => {
+    if (!chatOpen) return;
+    const last = useStore.getState().lastChatTime;
+    if (last != null && Date.now() - last > 30 * 60 * 1000) {
+      useStore.getState().clearChatMessages();
+    }
+  }, [chatOpen]);
+
+  const freeAiRemaining = useMemo(() => {
+    const used = syncDailyAiDateAndCount();
+    return Math.max(0, 5 - used);
+  }, [quotaVersion, chatOpen]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
@@ -213,6 +252,17 @@ export function ChatPanel() {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (!requireLogin()) return;
+
+    const todayCount = syncDailyAiDateAndCount();
+    if (todayCount >= 5) {
+      addChatMessage({
+        role: "ai",
+        text:
+          "오늘 무료 질문 5회를 다 사용했어요! 😊\n\n내일 다시 5회 충전돼요.\n\n더 많이 사용하고 싶으시면 토큰을 사용해주세요!",
+      });
+      return;
+    }
+
     if (user && user.tokens <= 0) {
       addChatMessage({ role: "ai", text: t.noTokens });
       return;
@@ -221,6 +271,7 @@ export function ChatPanel() {
       addChatMessage({ role: "ai", text: t.dailyLimitReached });
       return;
     }
+    touchChatActivity();
     void trackActivity("ask_ai", undefined, trimmed);
     addChatMessage({ role: "user", text: trimmed });
     addChatMessage({ role: "ai", text: "" });
@@ -296,6 +347,8 @@ export function ChatPanel() {
             updateLastAiMessage(finalText, {
               recommendedShops: data.recommendedShops ?? [],
             });
+            bumpDailyAiCount();
+            setQuotaVersion((v) => v + 1);
             incrementQuestion();
             incrementQuestionCount();
             deductToken();
@@ -347,50 +400,55 @@ export function ChatPanel() {
               color: var(--accent-light, #a78bfa);
             }
           `}</style>
-          {/* 오버레이: backdrop-blur(4px) */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 max-w-mobile right-0 ml-auto bg-black/40 backdrop-blur-[4px]"
-            style={{ width: "100%" }}
+            className="fixed inset-0"
+            style={{
+              zIndex: 10000,
+              background: "rgba(0,0,0,0.5)",
+            }}
             onClick={() => setChatOpen(false)}
+            aria-hidden
           />
           <motion.aside
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 28, stiffness: 300 }}
-            className="chat-container fixed top-0 right-0 z-50 w-[92%] max-w-mobile bg-baba-dark border-l border-white/10 shadow-glass-dark"
+            className="chat-container fixed top-0 right-0 bottom-0 border-l border-white/10 bg-[#0a0a0f] shadow-glass-dark"
+            style={{
+              width: "95%",
+              maxWidth: "408px",
+              zIndex: 10001,
+            }}
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* 헤더: AI 아바타 + 토큰 + 닫기 */}
-            <div className="flex shrink-0 items-center justify-between p-4 border-b border-white/10 pt-[max(1rem,env(safe-area-inset-top,0px))]">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-accent/70 flex items-center justify-center">
-                  <Sparkles className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-outfit font-semibold text-white">
-                    {t.aiName}
-                  </p>
-                  <p className="text-xs text-white/60">
-                    {t.tokensLabel} {tokens}
-                    {remainingFree !== null && (
-                      <span className="ml-2">
-                        · {t.remainingQuota}: {remainingFree}/3
-                      </span>
-                    )}
-                  </p>
-                </div>
-              </div>
+            <div className="flex shrink-0 items-center gap-2 px-3 py-3 border-b border-white/10 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
               <motion.button
                 type="button"
                 onClick={() => setChatOpen(false)}
-                className="p-2 rounded-full hover:bg-white/10"
+                className="p-2 rounded-full hover:bg-white/10 shrink-0"
                 whileTap={{ scale: 0.9 }}
+                aria-label={lang === "zh" ? "关闭" : "닫기"}
               >
-                <X className="w-5 h-5" />
+                <X className="w-6 h-6 text-white" strokeWidth={2} />
               </motion.button>
+              <div className="flex-1 flex flex-col items-center justify-center min-w-0">
+                <p className="font-outfit font-semibold text-white text-sm sm:text-base truncate w-full text-center">
+                  {t.aiName}
+                </p>
+                {remainingFree !== null && (
+                  <p className="text-[10px] text-white/50 truncate w-full text-center">
+                    {t.remainingQuota}: {remainingFree}/3
+                  </p>
+                )}
+              </div>
+              <div className="shrink-0 text-right text-xs text-white/90 min-w-[4.5rem]">
+                <span className="text-white/50">{t.tokensLabel}</span>{" "}
+                <span className="font-semibold text-white">{tokens}</span>
+              </div>
             </div>
 
             {/* 메시지 영역: AI 왼쪽 하단 각짐, 유저 오른쪽 하단 각짐, 새 메시지 scale */}
@@ -613,44 +671,53 @@ export function ChatPanel() {
                                       </p>
                                     )}
                                   </button>
-                                  {shop.lat && shop.lng && (
-                                    <div className="mt-3 flex gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openMapActionSheet(
-                                            shop.lat!,
-                                            shop.lng!,
-                                            shop.name,
-                                            shop.address || "",
-                                            displayKo || ""
-                                          );
-                                        }}
-                                        className="flex-1 rounded-full border border-white/15 bg-white/5 px-2 py-1.5 text-[10px] leading-tight text-white/90"
-                                        style={{
-                                          borderColor: "var(--accent)",
-                                          color: "var(--accent)",
-                                        }}
-                                      >
-                                        길찾기
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openDidi(shop.lat!, shop.lng!, shop.name);
-                                        }}
-                                        className="flex-1 rounded-full border border-white/15 bg-white/5 px-2 py-1.5 text-[10px] leading-tight"
-                                        style={{
-                                          borderColor: "var(--gold)",
-                                          color: "var(--gold)",
-                                        }}
-                                      >
-                                        택시
-                                      </button>
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const linkZhName =
+                                      (displayZh && displayZh.trim()) ||
+                                      String(shop.name || "").trim() ||
+                                      mapLabel;
+                                    if (!linkZhName) return null;
+                                    const lat = shop.lat ? String(shop.lat) : "";
+                                    const lng = shop.lng ? String(shop.lng) : "";
+                                    return (
+                                      <div className="mt-3 flex gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openMapActionSheet(
+                                              lat,
+                                              lng,
+                                              linkZhName,
+                                              shop.address || "",
+                                              displayKo || ""
+                                            );
+                                          }}
+                                          className="flex-1 rounded-full border border-white/15 bg-white/5 px-2 py-1.5 text-[10px] leading-tight text-white/90"
+                                          style={{
+                                            borderColor: "var(--accent)",
+                                            color: "var(--accent)",
+                                          }}
+                                        >
+                                          길찾기
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openDidi(lat, lng, linkZhName);
+                                          }}
+                                          className="flex-1 rounded-full border border-white/15 bg-white/5 px-2 py-1.5 text-[10px] leading-tight"
+                                          style={{
+                                            borderColor: "var(--gold)",
+                                            color: "var(--gold)",
+                                          }}
+                                        >
+                                          택시
+                                        </button>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                                 );
                               })}
@@ -723,6 +790,19 @@ export function ChatPanel() {
               </div>
             )}
 
+            <p
+              className={`shrink-0 px-4 pt-2 text-right text-[13px] ${
+                freeAiRemaining <= 0
+                  ? "text-red-400"
+                  : freeAiRemaining <= 3
+                    ? "text-[#feca57]"
+                    : "text-white/45"
+              }`}
+            >
+              {lang === "zh"
+                ? `今日剩余免费提问: ${freeAiRemaining}/5`
+                : `오늘 남은 무료 질문: ${freeAiRemaining}/5`}
+            </p>
             {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
             <div className="chat-input-area border-t border-white/10 flex gap-2 px-4 pt-3">
               <input

@@ -36,10 +36,11 @@ export async function GET() {
       CREATE TABLE IF NOT EXISTS posts (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT,
-        category VARCHAR(20) NOT NULL,
+        category VARCHAR(50) NOT NULL,
         title VARCHAR(200) NOT NULL,
         content TEXT NOT NULL,
         tags VARCHAR(500),
+        extra_data JSON DEFAULT NULL,
         views INT DEFAULT 0,
         likes INT DEFAULT 0,
         comments_count INT DEFAULT 0,
@@ -140,6 +141,18 @@ export async function GET() {
       await conn.query("ALTER TABLE posts ADD COLUMN images TEXT DEFAULT NULL");
     } catch {
       /* 이미 있음 */
+    }
+
+    try {
+      await conn.query("ALTER TABLE posts ADD COLUMN extra_data JSON DEFAULT NULL");
+    } catch {
+      /* 이미 있음 */
+    }
+
+    try {
+      await conn.query("ALTER TABLE posts MODIFY COLUMN category VARCHAR(50) NOT NULL");
+    } catch {
+      /* 호환 */
     }
 
     await conn.query(`

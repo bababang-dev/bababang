@@ -5,10 +5,16 @@ import { Sparkles } from "lucide-react";
 import { useStore } from "@/stores/useStore";
 
 export function FloatingAIButton() {
-  const { toggleChat, chatOpen } = useStore();
-  const isKeyboardOpen = useStore((s) => s.isKeyboardOpen);
+  const { toggleChat } = useStore();
+  const hideFab = useStore(
+    (s) =>
+      s.chatOpen ||
+      s.writePostOpen ||
+      s.promotionModalOpen ||
+      s.loginModalOpen
+  );
 
-  if (chatOpen || isKeyboardOpen) return null;
+  if (hideFab) return null;
 
   return (
     <div className="fixed bottom-0 left-1/2 z-50 -translate-x-1/2 w-full max-w-[430px] h-0 pointer-events-none">

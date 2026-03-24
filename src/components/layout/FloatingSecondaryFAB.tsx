@@ -11,13 +11,18 @@ export function FloatingSecondaryFAB() {
   const openWritePost = useStore((s) => s.openWritePost);
   const openPromotionModal = useStore((s) => s.openPromotionModal);
   const requireLogin = useStore((s) => s.requireLogin);
-  const chatOpen = useStore((s) => s.chatOpen);
-  const isKeyboardOpen = useStore((s) => s.isKeyboardOpen);
+  const hideFab = useStore(
+    (s) =>
+      s.chatOpen ||
+      s.writePostOpen ||
+      s.promotionModalOpen ||
+      s.loginModalOpen
+  );
 
   const showCommunity = activeTab === "community";
   const showPromotion = activeTab === "recommend" && recommendSubTab === "promo";
 
-  if (chatOpen || isKeyboardOpen) return null;
+  if (hideFab) return null;
   if (!showCommunity && !showPromotion) return null;
 
   return (

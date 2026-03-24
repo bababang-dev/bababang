@@ -74,6 +74,9 @@ export function MyPage() {
     openLoginModal,
     currentUserId,
     setUser,
+    profileEditOpen,
+    openProfileEdit,
+    closeProfileEdit,
   } = useStore();
   const user = useStore((s) => s.user);
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -85,7 +88,6 @@ export function MyPage() {
   const [tokenItems, setTokenItems] = useState<TokenItem[]>([]);
   const [tokenCount, setTokenCount] = useState<number | null>(null);
 
-  const [profileOpen, setProfileOpen] = useState(false);
   const [profileNick, setProfileNick] = useState("");
   const [profileAvatar, setProfileAvatar] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
@@ -170,10 +172,10 @@ export function MyPage() {
   }, [tokenOpen, currentUserId]);
 
   useEffect(() => {
-    if (!profileOpen || !user) return;
+    if (!profileEditOpen || !user) return;
     setProfileNick(user.name);
     setProfileAvatar(user.avatar);
-  }, [profileOpen, user]);
+  }, [profileEditOpen, user]);
 
   const showSettingsToast = useCallback((msg: string) => {
     setSettingsToast(msg);
@@ -264,7 +266,7 @@ export function MyPage() {
         /* ignore */
       }
       showSettingsToast(lang === "zh" ? "已保存" : "저장했어요");
-      setProfileOpen(false);
+      closeProfileEdit();
     } catch {
       showSettingsToast("저장 실패");
     } finally {
@@ -317,7 +319,7 @@ export function MyPage() {
   const menuItems = [
     { key: "membership" as const, label: t.menuMembership, onClick: () => setMembershipOpen(true) },
     { key: "tokens" as const, label: t.menuTokens, onClick: () => setTokenOpen(true) },
-    { key: "profile" as const, label: t.menuProfile, onClick: () => setProfileOpen(true) },
+    { key: "profile" as const, label: t.menuProfile, onClick: () => openProfileEdit() },
     { key: "language" as const, label: t.menuLanguage, onClick: () => setLangOpen(true) },
     { key: "settings" as const, label: t.menuSettings, onClick: () => setSettingsOpen(true) },
   ];
@@ -523,7 +525,7 @@ export function MyPage() {
 
       {/* 프로필 모달 */}
       <AnimatePresence>
-        {profileOpen && (
+        {profileEditOpen && (
           <motion.div
             className="fixed inset-0 z-[80] flex flex-col bg-[#0a0a0f]"
             initial={{ opacity: 0 }}
@@ -536,7 +538,7 @@ export function MyPage() {
               </h2>
               <button
                 type="button"
-                onClick={() => setProfileOpen(false)}
+                onClick={() => closeProfileEdit()}
                 className="p-2 rounded-full bg-white/10"
                 aria-label="close"
               >

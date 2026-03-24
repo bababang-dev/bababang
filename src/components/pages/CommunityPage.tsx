@@ -8,24 +8,31 @@ import { PostCard } from "@/components/cards/PostCard";
 import { i18n } from "@/lib/i18n";
 import { mockPosts } from "@/lib/mockData";
 import { trackActivity } from "@/lib/trackActivity";
-import type { Post } from "@/types";
+import type { Post, PostExtraData } from "@/types";
 
 const categoryKeys = [
   "전체",
-  "생활정보",
+  "자유",
+  "익명",
+  "중고거래",
+  "구인구직",
   "맛집",
+  "생활정보",
   "비자",
   "육아",
   "비즈니스",
 ] as const;
 
 const categoryZhMap: Record<string, string> = {
-  생활정보: "生活信息",
+  자유: "自由",
+  익명: "匿名",
+  중고거래: "二手",
+  구인구직: "招聘",
   맛집: "美食",
+  생활정보: "生活信息",
   비자: "签证",
   육아: "育儿",
   비즈니스: "商务",
-  자유: "自由",
 };
 
 function formatTime(dateStr: string): string {
@@ -38,6 +45,20 @@ function formatTime(dateStr: string): string {
   return Math.floor(diff / 86400) + "일 전";
 }
 
+function parseExtraData(raw: unknown): PostExtraData | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      const o = JSON.parse(raw) as PostExtraData;
+      return typeof o === "object" && o != null ? o : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object") return raw as PostExtraData;
+  return null;
+}
+
 function mapApiRowToPost(p: Record<string, unknown>): Post {
   const category = String(p.category ?? "");
   const tagsStr = p.tags != null ? String(p.tags) : "";
@@ -47,6 +68,7 @@ function mapApiRowToPost(p: Record<string, unknown>): Post {
     .filter(Boolean);
   const createdRaw = p.created_at != null ? String(p.created_at) : new Date().toISOString();
   const rel = formatTime(createdRaw);
+  const extraData = parseExtraData(p.extra_data);
   return {
     id: String(p.id),
     category,
@@ -68,6 +90,7 @@ function mapApiRowToPost(p: Record<string, unknown>): Post {
       p.images != null && String(p.images).trim() !== ""
         ? String(p.images)
         : undefined,
+    extraData,
   };
 }
 

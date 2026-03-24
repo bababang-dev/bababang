@@ -1,12 +1,15 @@
-import type { Post } from "@/types";
+import type { Post, PostExtraData } from "@/types";
 
 const categoryZhMap: Record<string, string> = {
-  생활정보: "生活信息",
+  자유: "自由",
+  익명: "匿名",
+  중고거래: "二手",
+  구인구직: "招聘",
   맛집: "美食",
+  생활정보: "生活信息",
   비자: "签证",
   육아: "育儿",
   비즈니스: "商务",
-  자유: "自由",
 };
 
 function formatTime(created: Date): { time: string; timeZh: string } {
@@ -21,6 +24,20 @@ function formatTime(created: Date): { time: string; timeZh: string } {
     time: created.toLocaleDateString("ko-KR"),
     timeZh: created.toLocaleDateString("zh-CN"),
   };
+}
+
+function parseExtraData(raw: unknown): PostExtraData | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      const o = JSON.parse(raw) as PostExtraData;
+      return typeof o === "object" && o != null ? o : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object") return raw as PostExtraData;
+  return null;
 }
 
 /** DB row from GET /api/posts (JOIN users) */
@@ -39,6 +56,8 @@ export function mapDbRowToPost(row: Record<string, unknown>): Post {
     ? new Date(String(row.created_at))
     : new Date();
   const { time, timeZh } = formatTime(created);
+  const av =
+    row.avatar != null && String(row.avatar).trim() !== "" ? String(row.avatar) : "/avatars/me.jpg";
 
   return {
     id,
@@ -47,7 +66,7 @@ export function mapDbRowToPost(row: Record<string, unknown>): Post {
     title,
     titleZh: title,
     author,
-    avatar: "/avatars/me.jpg",
+    avatar: av,
     time,
     timeZh,
     views: Number(row.views ?? 0),
@@ -61,6 +80,7 @@ export function mapDbRowToPost(row: Record<string, unknown>): Post {
       row.images != null && String(row.images).trim() !== ""
         ? String(row.images)
         : undefined,
+    extraData: parseExtraData(row.extra_data),
   };
 }
 

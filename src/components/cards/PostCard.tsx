@@ -27,6 +27,8 @@ export function PostCard({
   const title = lang === "zh" ? post.titleZh : post.title;
   const time = lang === "zh" ? post.timeZh : post.time;
   const content = lang === "zh" ? post.contentZh : post.content;
+  const isAnonCategory = post.category === "익명";
+  const displayAuthor = isAnonCategory ? "익명" : post.author;
   const isChineseText = /[\u4e00-\u9fff]/.test(content);
   const imageUrls = post.images
     ? post.images.split(",").map((u) => u.trim()).filter(Boolean)
@@ -83,11 +85,19 @@ export function PostCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <div
-            className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center font-outfit font-semibold text-lg ${
+            className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center font-outfit font-semibold text-lg overflow-hidden ${
               dark ? "bg-white/10 text-white" : "bg-accent/20 text-accent"
             }`}
           >
-            {post.author.slice(0, 1)}
+            {isAnonCategory ? (
+              <span className="text-xl leading-none" aria-hidden>
+                🎭
+              </span>
+            ) : /^https?:\/\//i.test(post.avatar) ? (
+              <img src={post.avatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              (post.avatar || displayAuthor).slice(0, 1)
+            )}
           </div>
           <div className="min-w-0">
             <p
@@ -95,20 +105,30 @@ export function PostCard({
                 dark ? "text-white" : "text-black"
               }`}
             >
-              {post.author}
+              {displayAuthor}
             </p>
             <p className="text-xs opacity-60">{time}</p>
           </div>
         </div>
-        <span
-          className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${
-            dark
-              ? "bg-accent/30 text-accent"
-              : "bg-accent/20 text-accent"
-          }`}
-        >
-          {category}
-        </span>
+        <div className="flex flex-shrink-0 flex-col items-end gap-1">
+          <span
+            className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+              dark ? "bg-accent/30 text-accent" : "bg-accent/20 text-accent"
+            }`}
+          >
+            {category}
+          </span>
+          {post.category === "중고거래" && post.extraData?.price ? (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gold/25 text-gold">
+              ¥{post.extraData.price}
+            </span>
+          ) : null}
+          {post.category === "구인구직" && post.extraData?.jobType ? (
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-black/10 text-black/80 dark:bg-white/15 dark:text-white/90">
+              {post.extraData.jobType}
+            </span>
+          ) : null}
+        </div>
       </div>
       {imageUrls.length > 0 && (
         <div

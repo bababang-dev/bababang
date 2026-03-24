@@ -36,13 +36,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { userId, category, title, content, tags, images } = body as {
+    const { userId, category, title, content, tags, images, extraData } = body as {
       userId?: number;
       category?: string;
       title?: string;
       content?: string;
       tags?: string;
       images?: string;
+      extraData?: Record<string, string> | null;
     };
 
     // AI 자동 태그 (태그가 없으면 OpenAI로 생성)
@@ -83,9 +84,14 @@ export async function POST(request: Request) {
       }
     }
 
+    const extraJson =
+      extraData != null && typeof extraData === "object" && Object.keys(extraData).length > 0
+        ? JSON.stringify(extraData)
+        : null;
+
     const [result] = await pool.query(
-      "INSERT INTO posts (user_id, category, title, content, tags, images) VALUES (?, ?, ?, ?, ?, ?)",
-      [userId || 1, category, title, content, finalTags ?? "", images ?? null]
+      "INSERT INTO posts (user_id, category, title, content, tags, images, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [userId || 1, category, title, content, finalTags ?? "", images ?? null, extraJson]
     );
 
     const header = result as ResultSetHeader;

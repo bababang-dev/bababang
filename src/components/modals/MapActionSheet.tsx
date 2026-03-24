@@ -15,8 +15,7 @@ export function MapActionSheet() {
   const destAddress = mapActionSheet?.destAddress ?? "";
   const koreanName = mapActionSheet?.koreanName ?? "";
 
-  const options =
-    destLat && destLng ? showMapOptions(destLat, destLng, destName) : [];
+  const options = destName ? showMapOptions(destLat, destLng, destName) : [];
 
   return (
     <AnimatePresence>

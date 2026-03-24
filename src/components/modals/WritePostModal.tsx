@@ -7,8 +7,51 @@ import { useStore } from "@/stores/useStore";
 import type { Post } from "@/types";
 import { MediaUploadArea, type MediaItem } from "@/components/common/MediaUploadArea";
 import { useModalBodyLock } from "@/lib/useModalBodyLock";
+import type { PostExtraData } from "@/types";
 
-const categories = ["생활정보", "맛집", "비자", "육아", "비즈니스", "자유"] as const;
+const categories = [
+  "자유",
+  "익명",
+  "중고거래",
+  "구인구직",
+  "맛집",
+  "생활정보",
+  "비자",
+  "육아",
+  "비즈니스",
+] as const;
+
+function ChipRow({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-black/50 mb-1.5">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((o) => (
+          <button
+            key={o}
+            type="button"
+            onClick={() => onChange(o)}
+            className={`px-3 py-1.5 rounded-full text-xs ${
+              value === o ? "bg-accent text-white" : "bg-white text-black/70 border border-black/10"
+            }`}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function WritePostModal() {
   const {
@@ -22,10 +65,19 @@ export function WritePostModal() {
     currentUserId,
   } = useStore();
   useModalBodyLock(writePostOpen);
-  const [category, setCategory] = useState<(typeof categories)[number]>("생활정보");
+  const [category, setCategory] = useState<(typeof categories)[number]>("자유");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [tagsText, setTagsText] = useState("");
+  const [tradePrice, setTradePrice] = useState("");
+  const [tradeType, setTradeType] = useState("");
+  const [tradeRegion, setTradeRegion] = useState("");
+  const [tradeCondition, setTradeCondition] = useState("");
+  const [jobType, setJobType] = useState("");
+  const [jobIndustry, setJobIndustry] = useState("");
+  const [jobSalary, setJobSalary] = useState("");
+  const [jobWorkRegion, setJobWorkRegion] = useState("");
+  const [jobVisaReq, setJobVisaReq] = useState("");
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
@@ -34,24 +86,36 @@ export function WritePostModal() {
   const [aiState, setAiState] = useState<"idle" | "ai" | "restored">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const categoryZh = useMemo(() => {
+    const map: Record<string, string> = {
+      자유: "自由",
+      익명: "匿名",
+      중고거래: "二手",
+      구인구직: "招聘",
+      맛집: "美食",
+      생활정보: "生活信息",
+      비자: "签证",
+      육아: "育儿",
+      비즈니스: "商务",
+    };
+    return map[category] ?? "自由";
+  }, [category]);
+
   useEffect(() => {
     if (!writePostOpen) {
       setAiState("idle");
       setAiOriginalContent("");
+      setTradePrice("");
+      setTradeType("");
+      setTradeRegion("");
+      setTradeCondition("");
+      setJobType("");
+      setJobIndustry("");
+      setJobSalary("");
+      setJobWorkRegion("");
+      setJobVisaReq("");
     }
   }, [writePostOpen]);
-
-  const categoryZh = useMemo(() => {
-    const map: Record<string, string> = {
-      생활정보: "生活信息",
-      맛집: "美食",
-      비자: "签证",
-      육아: "育儿",
-      비즈니스: "商务",
-      자유: "自由",
-    };
-    return map[category] ?? "生活信息";
-  }, [category]);
 
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -139,14 +203,39 @@ export function WritePostModal() {
       return;
     }
 
+    let extraData: PostExtraData | null = null;
+    if (category === "중고거래") {
+      extraData = {
+        price: tradePrice.trim(),
+        tradeType: tradeType.trim(),
+        region: tradeRegion.trim(),
+        condition: tradeCondition.trim(),
+      };
+    } else if (category === "구인구직") {
+      extraData = {
+        jobType: jobType.trim(),
+        industry: jobIndustry.trim(),
+        salary: jobSalary.trim(),
+        workRegion: jobWorkRegion.trim(),
+        visaReq: jobVisaReq.trim(),
+      };
+    }
+
     const post: Post = {
       id: `p-${Date.now()}`,
       category,
       categoryZh,
       title: title.trim(),
       titleZh: title.trim(),
-      author: user ? (lang === "zh" ? user.nameZh : user.name) : "익명",
-      avatar: user?.avatar ?? "/avatars/me.jpg",
+      author:
+        category === "익명"
+          ? "익명"
+          : user
+            ? lang === "zh"
+              ? user.nameZh
+              : user.name
+            : "익명",
+      avatar: category === "익명" ? "🎭" : user?.avatar ?? "/avatars/me.jpg",
       time: "방금 전",
       timeZh: "刚刚",
       views: 0,
@@ -157,6 +246,7 @@ export function WritePostModal() {
       tags,
       tagsZh: tags,
       images: imagesCsv || undefined,
+      extraData: extraData && Object.values(extraData).some((v) => v) ? extraData : undefined,
     };
     try {
       const res = await fetch("/api/posts", {
@@ -169,6 +259,8 @@ export function WritePostModal() {
           content: content.trim(),
           tags: tagsText.trim(),
           images: imagesCsv || undefined,
+          extraData:
+            extraData && Object.values(extraData).some((v) => v) ? extraData : undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { tags?: string; success?: boolean };
@@ -191,7 +283,7 @@ export function WritePostModal() {
     setMediaItems([]);
     closeWritePost();
     setActiveTab("community");
-    setCategory("생활정보");
+    setCategory("자유");
     setTitle("");
     setContent("");
     setTagsText("");
@@ -228,13 +320,13 @@ export function WritePostModal() {
       </div>
 
       <div className="p-4 space-y-4 overflow-y-auto h-[calc(100%-56px)]">
-        <div className="flex gap-2 overflow-x-auto">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin -mx-1 px-1">
           {categories.map((c) => (
             <button
               key={c}
               type="button"
               onClick={() => setCategory(c)}
-              className={`px-3 py-1.5 rounded-full text-sm ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm ${
                 category === c ? "bg-accent text-white" : "bg-white text-black/70"
               }`}
             >
@@ -242,6 +334,65 @@ export function WritePostModal() {
             </button>
           ))}
         </div>
+
+        {category === "중고거래" && (
+          <div className="space-y-3 rounded-xl bg-white p-3 border border-black/10">
+            <input
+              value={tradePrice}
+              onChange={(e) => setTradePrice(e.target.value)}
+              placeholder="가격 (위안)"
+              className="w-full rounded-xl bg-black/[0.03] px-3 py-2.5 text-sm outline-none border border-black/10"
+            />
+            <ChipRow
+              label="거래방식"
+              options={["직거래", "택배", "둘다"]}
+              value={tradeType}
+              onChange={setTradeType}
+            />
+            <input
+              value={tradeRegion}
+              onChange={(e) => setTradeRegion(e.target.value)}
+              placeholder="거래 지역"
+              className="w-full rounded-xl bg-black/[0.03] px-3 py-2.5 text-sm outline-none border border-black/10"
+            />
+            <ChipRow
+              label="상태"
+              options={["새상품", "거의새것", "사용감있음"]}
+              value={tradeCondition}
+              onChange={setTradeCondition}
+            />
+          </div>
+        )}
+
+        {category === "구인구직" && (
+          <div className="space-y-3 rounded-xl bg-white p-3 border border-black/10">
+            <ChipRow label="유형" options={["구인", "구직"]} value={jobType} onChange={setJobType} />
+            <input
+              value={jobIndustry}
+              onChange={(e) => setJobIndustry(e.target.value)}
+              placeholder="업종 (예: 무역, 식당, 교육)"
+              className="w-full rounded-xl bg-black/[0.03] px-3 py-2.5 text-sm outline-none border border-black/10"
+            />
+            <input
+              value={jobSalary}
+              onChange={(e) => setJobSalary(e.target.value)}
+              placeholder="급여 (예: 월 8000위안)"
+              className="w-full rounded-xl bg-black/[0.03] px-3 py-2.5 text-sm outline-none border border-black/10"
+            />
+            <input
+              value={jobWorkRegion}
+              onChange={(e) => setJobWorkRegion(e.target.value)}
+              placeholder="근무 지역"
+              className="w-full rounded-xl bg-black/[0.03] px-3 py-2.5 text-sm outline-none border border-black/10"
+            />
+            <ChipRow
+              label="비자조건"
+              options={["무관", "취업비자", "학생비자가능"]}
+              value={jobVisaReq}
+              onChange={setJobVisaReq}
+            />
+          </div>
+        )}
 
         <input
           value={title}

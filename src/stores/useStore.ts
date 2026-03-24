@@ -29,6 +29,9 @@ interface AppState {
   isKeyboardOpen: boolean;
   setKeyboardOpen: (open: boolean) => void;
   chatMessages: ChatMessage[];
+  /** 마지막 유저 전송 시각 (30분 무응답 시 대화 리셋용) */
+  lastChatTime: number | null;
+  touchChatActivity: () => void;
   addChatMessage: (msg: ChatMessage) => void;
   updateLastAiMessage: (
     text: string,
@@ -70,6 +73,10 @@ interface AppState {
   setDetailView: (id: string | null) => void;
   membershipOpen: boolean;
   setMembershipOpen: (open: boolean) => void;
+  /** 마이 프로필 편집 모달 (하단 탭 숨김용) */
+  profileEditOpen: boolean;
+  openProfileEdit: () => void;
+  closeProfileEdit: () => void;
   writePostOpen: boolean;
   openWritePost: () => void;
   closeWritePost: () => void;
@@ -163,6 +170,8 @@ export const useStore = create<AppState>((set, get) => ({
   isKeyboardOpen: false,
   setKeyboardOpen: (open) => set({ isKeyboardOpen: open }),
   chatMessages: [],
+  lastChatTime: null,
+  touchChatActivity: () => set({ lastChatTime: Date.now() }),
   addChatMessage: (msg) =>
     set((s) => ({ chatMessages: [...s.chatMessages, msg] })),
   updateLastAiMessage: (text, extra) =>
@@ -182,7 +191,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       return { chatMessages: msgs };
     }),
-  clearChatMessages: () => set({ chatMessages: [] }),
+  clearChatMessages: () => set({ chatMessages: [], lastChatTime: null }),
   chatFeedback: [],
   addFeedback: (feedback) =>
     set((s) => ({ chatFeedback: [...s.chatFeedback, feedback] })),
@@ -230,6 +239,9 @@ export const useStore = create<AppState>((set, get) => ({
   setDetailView: (id) => set({ detailView: id }),
   membershipOpen: false,
   setMembershipOpen: (open) => set({ membershipOpen: open }),
+  profileEditOpen: false,
+  openProfileEdit: () => set({ profileEditOpen: true }),
+  closeProfileEdit: () => set({ profileEditOpen: false }),
   writePostOpen: false,
   openWritePost: () => set({ writePostOpen: true }),
   closeWritePost: () => set({ writePostOpen: false }),

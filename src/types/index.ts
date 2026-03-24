@@ -13,6 +13,19 @@ export type Lang = "ko" | "zh";
 // 테마 (페이지별 다크/라이트)
 export type Theme = "dark" | "light";
 
+/** posts.extra_data JSON (중고거래 / 구인구직 등) */
+export type PostExtraData = {
+  price?: string;
+  tradeType?: string;
+  region?: string;
+  condition?: string;
+  jobType?: string;
+  industry?: string;
+  salary?: string;
+  workRegion?: string;
+  visaReq?: string;
+};
+
 // 게시글
 export interface Post {
   id: string;
@@ -33,6 +46,7 @@ export interface Post {
   tagsZh: string[];
   /** 쉼표로 구분된 이미지/영상 URL (OSS) */
   images?: string;
+  extraData?: PostExtraData | null;
 }
 
 // 장소
