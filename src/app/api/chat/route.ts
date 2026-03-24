@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import pool from "@/lib/db";
-import { getShopDictFromDB, findAllShops } from "@/lib/shopDict";
+import { findAllShops } from "@/lib/shopDict";
+import { getShopDictFromDB } from "@/lib/shopDictServer";
 import { findCategories } from "@/lib/categoryDict";
 import {
   getCachedSearch,
