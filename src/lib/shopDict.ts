@@ -371,9 +371,9 @@ export const shopDict: ShopEntry[] = [
 ];
 
 // 한국어 별명으로 가게 찾기
-export function findShop(text: string): ShopEntry | null {
+export function findShop(text: string, dict: ShopEntry[] = shopDict): ShopEntry | null {
   const lower = text.toLowerCase();
-  for (const shop of shopDict) {
+  for (const shop of dict) {
     for (const name of shop.koreanNames) {
       if (lower.includes(name.toLowerCase())) return shop;
     }
@@ -382,10 +382,10 @@ export function findShop(text: string): ShopEntry | null {
 }
 
 // 텍스트에서 모든 매칭 가게 찾기
-export function findAllShops(text: string): ShopEntry[] {
+export function findAllShops(text: string, dict: ShopEntry[] = shopDict): ShopEntry[] {
   const lower = text.toLowerCase();
   const found: ShopEntry[] = [];
-  for (const shop of shopDict) {
+  for (const shop of dict) {
     if (!shop.zh?.trim()) continue;
     for (const name of shop.koreanNames) {
       if (lower.includes(name.toLowerCase())) {
@@ -398,9 +398,9 @@ export function findAllShops(text: string): ShopEntry[] {
 }
 
 // 한국어 별명을 중국어로 치환
-export function replaceShopNames(text: string): string {
+export function replaceShopNames(text: string, dict: ShopEntry[] = shopDict): string {
   let result = text;
-  for (const shop of shopDict) {
+  for (const shop of dict) {
     if (!shop.zh) continue;
     for (const name of shop.koreanNames) {
       if (result.includes(name)) {
@@ -409,4 +409,41 @@ export function replaceShopNames(text: string): string {
     }
   }
   return result;
+}
+
+/** DB 우선, 실패 시 shopDict.ts 폴백 */
+export async function getShopDictFromDB(): Promise<ShopEntry[]> {
+  try {
+    const pool = (await import("@/lib/db")).default;
+    const [rows] = (await pool.query(
+      "SELECT name_zh, name_ko, category, district FROM shop_dictionary WHERE is_active = TRUE"
+    )) as unknown as [
+      Array<{
+        name_zh: string;
+        name_ko: string | null;
+        category: string | null;
+        district: string | null;
+      }>,
+    ];
+
+    return rows.map((row) => {
+      let koreanNames: string[] = [];
+      try {
+        const parsed = JSON.parse(row.name_ko || "[]") as unknown;
+        koreanNames = Array.isArray(parsed)
+          ? (parsed as string[]).map(String)
+          : [];
+      } catch {
+        koreanNames = [];
+      }
+      return {
+        zh: row.name_zh,
+        koreanNames,
+        category: row.category ?? undefined,
+        district: row.district ?? undefined,
+      };
+    });
+  } catch {
+    return shopDict;
+  }
 }

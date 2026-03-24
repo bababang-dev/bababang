@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
 import pool from "@/lib/db";
-import { shopDict, findAllShops } from "@/lib/shopDict";
+import { getShopDictFromDB, findAllShops } from "@/lib/shopDict";
 import { findCategories } from "@/lib/categoryDict";
 import {
   getCachedSearch,
@@ -447,6 +447,34 @@ async function fetchBlogContent(url: string): Promise<string> {
   }
 }
 
+/** 한국어 지역 표기 → 高德/번역용 중국어 (청양/성양·城阳 등) */
+const DISTRICT_KO_TO_ZH: Array<[string, string]> = [
+  ["청양|성양", "城阳"],
+  ["청양구|성양구", "城阳区"],
+  ["시난|스난|시남", "市南"],
+  ["시난구|시남구", "市南区"],
+  ["시베이|시북", "市北"],
+  ["시베이구|시북구", "市北区"],
+  ["황다오|황도", "黄岛"],
+  ["황다오구|황도구", "黄岛区"],
+  ["라오산|로샨|로산", "崂山"],
+  ["라오산구|로샨구|로산구", "崂山区"],
+  ["리창|이창", "李沧"],
+  ["리창구|이창구", "李沧区"],
+  ["즉묵|지묵", "即墨"],
+  ["즉묵구|지묵구", "即墨区"],
+  ["자오저우|교주", "胶州"],
+  ["자오저우시|교주시", "胶州市"],
+];
+
+function applyDistrictMapping(text: string): string {
+  let processed = text;
+  for (const [pattern, zh] of DISTRICT_KO_TO_ZH) {
+    processed = processed.replace(new RegExp(pattern, "g"), zh);
+  }
+  return processed;
+}
+
 type AmapPoi = {
   name: string;
   address: string;
@@ -692,17 +720,20 @@ export async function POST(request: Request) {
         }
 
         const userMessage = messages[messages.length - 1]?.content || "";
+        const shopDictData = await getShopDictFromDB();
+        const processedMessage = applyDistrictMapping(userMessage);
+
         sendStatus("🔍 이전 검색 결과 확인중...");
-        const searchQuery = "칭다오 " + userMessage.slice(0, 30).trim();
+        const searchQuery = "칭다오 " + processedMessage.slice(0, 30).trim();
         const sortType = Math.random() > 0.5 ? "sim" : "date";
         const startPos = Math.floor(Math.random() * 5) + 1;
 
-        const shopListText = shopDict
+        const shopListText = shopDictData
           .filter((s) => Boolean(s.zh?.trim()))
           .map((s) => `${s.zh} = ${s.koreanNames.join(",")}`)
           .join("\n");
 
-        let searchQueryZh = userMessage;
+        let searchQueryZh = processedMessage;
         let chinazoaData: string[] = [];
         let bababangDbLines: string[] = [];
         let uniquePois: AmapPoi[] = [];
@@ -718,7 +749,7 @@ export async function POST(request: Request) {
         let searchContext = "";
         let usedCache = false;
 
-        const cached = await getCachedSearch(userMessage, {
+        const cached = await getCachedSearch(processedMessage, {
           maxAgeDays: body.cacheMaxAgeDays,
         });
         if (cached) {
@@ -777,12 +808,12 @@ export async function POST(request: Request) {
         }
 
         if (!usedCache) {
-        const matchedShops = findAllShops(userMessage);
+        const matchedShops = findAllShops(processedMessage, shopDictData);
         if (matchedShops.length > 0 && matchedShops[0].zh) {
           searchQueryZh = matchedShops[0].zh;
           console.log("=== shopDict 매칭: " + searchQueryZh + " ===");
         } else {
-          const hasKorean = /[가-힣]/.test(userMessage);
+          const hasKorean = /[가-힣]/.test(processedMessage);
           if (hasKorean) {
             sendStatus("🌐 검색어 번역중...");
             try {
@@ -799,7 +830,7 @@ export async function POST(request: Request) {
                       role: "user",
                       content:
                         "아래 한국어를 중국어로 번역해. 번역만 출력해. 다른 말 하지마. 장소명, 기관명, 카테고리 등을 정확히 번역해.\n\n" +
-                        userMessage,
+                        processedMessage,
                     },
                   ],
                 }),
@@ -810,7 +841,7 @@ export async function POST(request: Request) {
               const translated = transData.choices?.[0]?.message?.content?.trim();
               if (translated && translated.length > 0) {
                 searchQueryZh = translated;
-                console.log("=== 번역: " + userMessage + " → " + searchQueryZh + " ===");
+                console.log("=== 번역: " + processedMessage + " → " + searchQueryZh + " ===");
               }
             } catch {
               console.log("=== 번역 실패, 원문 사용 ===");
@@ -818,7 +849,7 @@ export async function POST(request: Request) {
           }
         }
 
-        console.log("=== 검색 키워드: 高德/百度=" + searchQueryZh + ", 네이버=" + userMessage + " ===");
+        console.log("=== 검색 키워드: 高德/百度=" + searchQueryZh + ", 네이버=" + processedMessage + " ===");
 
         const amapKeywordsFromDict = findCategories(searchQueryZh);
 
@@ -847,8 +878,8 @@ export async function POST(request: Request) {
         sendStatus("🗺️ 高德地图에서 검색중...");
         const amapCount = amapKeywords.length;
         const parallelBundle = await Promise.all([
-          crawlChinazoa(userMessage),
-          fetchBababangDbContext(userMessage),
+          crawlChinazoa(processedMessage),
+          fetchBababangDbContext(processedMessage),
           ...amapKeywords.map((kw) => amapSearch(kw)),
           needsNews ? searchGoogleNews(userMessage) : Promise.resolve([] as string[]),
         ]);
@@ -908,7 +939,7 @@ export async function POST(request: Request) {
         }
 
         const shopDictNames = new Set(
-          shopDict
+          shopDictData
             .map((s) => s.zh?.split("(")[0]?.split("（")[0]?.trim())
             .filter((x): x is string => Boolean(x))
         );
@@ -1027,7 +1058,7 @@ export async function POST(request: Request) {
               category: poi.type,
             },
             "amap",
-            userMessage
+            processedMessage
           );
           if (sid) savedShopIds.push(sid);
         }
@@ -1039,9 +1070,9 @@ export async function POST(request: Request) {
               url: item.link,
               language: "ko",
             },
-            searchQueryZh || userMessage,
+            searchQueryZh || processedMessage,
             "naver_blog",
-            userMessage
+            processedMessage
           );
           if (rid) savedReviewIds.push(rid);
         }
@@ -1059,9 +1090,9 @@ export async function POST(request: Request) {
               text,
               language: "zh",
             },
-            searchQueryZh || userMessage,
+            searchQueryZh || processedMessage,
             source,
-            userMessage
+            processedMessage
           );
           if (rid) savedReviewIds.push(rid);
         }
@@ -1080,16 +1111,16 @@ export async function POST(request: Request) {
                 url,
                 language: "zh",
               },
-              searchQueryZh || userMessage,
+              searchQueryZh || processedMessage,
               reviewSourceForCrawlUrl(url),
-              userMessage
+              processedMessage
             );
             if (rid) savedReviewIds.push(rid);
           }
         }
 
         await cacheSearchResult(
-          userMessage,
+          processedMessage,
           searchContext.slice(0, 2000),
           savedShopIds,
           savedReviewIds,
@@ -1118,12 +1149,12 @@ export async function POST(request: Request) {
         try {
           const [kbRows] = (await pool.query(
             "SELECT title, content FROM knowledge_base WHERE is_active = TRUE AND MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE) LIMIT 3",
-            [userMessage]
+            [processedMessage]
           )) as unknown as [RowDataPacket[]];
           appendKbContext(kbRows);
         } catch {
           try {
-            const slice = userMessage.slice(0, 20);
+            const slice = processedMessage.slice(0, 20);
             const like = "%" + slice + "%";
             const [kbRows] = (await pool.query(
               "SELECT title, content FROM knowledge_base WHERE is_active = TRUE AND (content LIKE ? OR title LIKE ?) LIMIT 3",
@@ -1430,7 +1461,7 @@ ${searchContext}`
             }
           }
 
-          const dictMatch = shopDict.find((s) => {
+          const dictMatch = shopDictData.find((s) => {
             if (!s.zh?.trim()) return false;
             const dZh = s.zh.split("(")[0].split("（")[0].trim();
             return dZh === shortName || dZh.includes(shortName) || shortName.includes(dZh);

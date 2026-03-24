@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { shopDict } from "@/lib/shopDict";
 
 export const dynamic = "force-dynamic";
 
@@ -339,6 +340,43 @@ export async function GET() {
         INDEX idx_cached (cached_at)
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS shop_dictionary (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name_zh VARCHAR(200) NOT NULL,
+        name_ko TEXT NOT NULL,
+        category VARCHAR(50),
+        district VARCHAR(50),
+        address VARCHAR(300),
+        phone VARCHAR(50),
+        notes TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_name_zh (name_zh),
+        INDEX idx_district (district)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    const [existingDict] = (await conn.query(
+      "SELECT COUNT(*) as cnt FROM shop_dictionary"
+    )) as unknown as [Array<{ cnt: number }>];
+    const dictCnt = Number(existingDict[0]?.cnt ?? 0);
+    if (dictCnt === 0 && shopDict.length > 0) {
+      for (const shop of shopDict) {
+        if (!shop.zh?.trim()) continue;
+        try {
+          await conn.query(
+            "INSERT IGNORE INTO shop_dictionary (name_zh, name_ko, category) VALUES (?, ?, ?)",
+            [shop.zh.trim(), JSON.stringify(shop.koreanNames), shop.category || "기타"]
+          );
+        } catch {
+          /* 한 행 실패 시 스킵 */
+        }
+      }
+      console.log("=== shopDict " + shopDict.length + "개 DB 마이그레이션 시도 완료 ===");
+    }
 
     await conn.query(`
       CREATE TABLE IF NOT EXISTS knowledge_base (

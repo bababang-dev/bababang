@@ -38,7 +38,41 @@ type AdminTab =
   | "ads"
   | "cache"
   | "knowledge"
-  | "ai";
+  | "ai"
+  | "shopDictionary";
+
+const DICT_CATEGORY_OPTIONS = ["맛집", "병원", "마트", "교육", "미용", "부동산", "기타"] as const;
+const DICT_DISTRICT_OPTIONS = [
+  "시남구/시북구",
+  "청양구,성양구",
+  "황다오구,황도구",
+  "라오산구,노산구",
+  "리창구,이창구",
+  "즉묵,지묵",
+  "자오저우,교주",
+] as const;
+const REVIEW_SOURCE_OPTIONS = [
+  "dianping",
+  "xiaohongshu",
+  "naver_blog",
+  "naver_cafe",
+  "zhihu",
+  "weibo",
+  "meituan",
+  "user",
+] as const;
+
+function formatShopDictKoJson(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw !== "string") return String(raw);
+  try {
+    const p = JSON.parse(raw) as unknown;
+    if (Array.isArray(p)) return p.map(String).join(",");
+  } catch {
+    return raw;
+  }
+  return raw;
+}
 
 function reportTypeLabel(t: string): string {
   if (t === "closed") return "폐업/없어짐";
@@ -115,6 +149,37 @@ export function AdminPage() {
   const [cacheSub, setCacheSub] = useState<"shops" | "reviews" | "searches">("shops");
   const [cacheItems, setCacheItems] = useState<Array<Record<string, unknown>>>([]);
   const [cacheLoading, setCacheLoading] = useState(false);
+
+  const [shopEdit, setShopEdit] = useState<{
+    id: number;
+    name_zh: string;
+    name_ko: string;
+    address: string;
+    phone: string;
+    rating: string;
+    cost: string;
+    open_time: string;
+  } | null>(null);
+
+  const [reviewEdit, setReviewEdit] = useState<{
+    id: number;
+    review_text: string;
+    source: string;
+  } | null>(null);
+
+  const [dictItems, setDictItems] = useState<Array<Record<string, unknown>>>([]);
+  const [dictLoading, setDictLoading] = useState(false);
+  const [dictSearch, setDictSearch] = useState("");
+  const [dictEditingId, setDictEditingId] = useState<number | null>(null);
+  const [dictForm, setDictForm] = useState({
+    nameZh: "",
+    nameKo: "",
+    category: "기타",
+    district: "",
+    address: "",
+    phone: "",
+    notes: "",
+  });
 
   const [kbItems, setKbItems] = useState<
     Array<{
@@ -283,6 +348,30 @@ export function AdminPage() {
   }, [tab, cacheSub]);
 
   useEffect(() => {
+    if (tab !== "shopDictionary") return;
+    let cancelled = false;
+    (async () => {
+      setDictLoading(true);
+      try {
+        const res = await fetch("/api/admin/shop-dictionary");
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && Array.isArray(data.items)) {
+          setDictItems(data.items as Array<Record<string, unknown>>);
+        } else {
+          setDictItems([]);
+        }
+      } catch {
+        if (!cancelled) setDictItems([]);
+      }
+      if (!cancelled) setDictLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
+  useEffect(() => {
     if (tab !== "knowledge") return;
     let cancelled = false;
     (async () => {
@@ -330,6 +419,16 @@ export function AdminPage() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
   }, [chatMessages]);
+
+  const filteredDictItems = useMemo(() => {
+    const q = dictSearch.trim().toLowerCase();
+    if (!q) return dictItems;
+    return dictItems.filter((row) => {
+      const zh = String(row.name_zh ?? "").toLowerCase();
+      const ko = formatShopDictKoJson(row.name_ko).toLowerCase();
+      return zh.includes(q) || ko.includes(q);
+    });
+  }, [dictItems, dictSearch]);
 
   const saveLocalShops = (shops: ShopEntry[]) => {
     setLocalShops(shops);
@@ -422,6 +521,142 @@ export function AdminPage() {
     if (res.ok) refreshCache();
   };
 
+  const saveShopCacheEdit = async () => {
+    if (!shopEdit) return;
+    const res = await fetch("/api/admin/cache", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "shops",
+        id: shopEdit.id,
+        updates: {
+          nameZh: shopEdit.name_zh,
+          nameKo: shopEdit.name_ko,
+          address: shopEdit.address,
+          phone: shopEdit.phone,
+          rating: shopEdit.rating,
+          cost: shopEdit.cost,
+          openTime: shopEdit.open_time,
+        },
+      }),
+    });
+    if (res.ok) {
+      setShopEdit(null);
+      refreshCache();
+    }
+  };
+
+  const saveReviewEdit = async () => {
+    if (!reviewEdit) return;
+    const res = await fetch("/api/admin/cache", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "reviews",
+        id: reviewEdit.id,
+        action: "edit",
+        reviewText: reviewEdit.review_text,
+        source: reviewEdit.source,
+      }),
+    });
+    if (res.ok) {
+      setReviewEdit(null);
+      refreshCache();
+    }
+  };
+
+  const deleteReviewRow = async (id: number) => {
+    if (!confirm("이 리뷰 캐시를 삭제할까요?")) return;
+    await deleteCacheRow("reviews", id);
+  };
+
+  const refreshDictList = () => {
+    void fetch("/api/admin/shop-dictionary")
+      .then((r) => r.json())
+      .then((d: { items?: unknown[] }) => {
+        if (Array.isArray(d.items)) setDictItems(d.items as Array<Record<string, unknown>>);
+      });
+  };
+
+  const saveDictionary = async () => {
+    if (!dictForm.nameZh.trim() || !dictForm.nameKo.trim()) {
+      alert("중국어·한국어 이름을 입력해주세요.");
+      return;
+    }
+    const payload = {
+      nameZh: dictForm.nameZh.trim(),
+      nameKo: dictForm.nameKo.trim(),
+      category: dictForm.category,
+      district: dictForm.district,
+      address: dictForm.address,
+      phone: dictForm.phone,
+      notes: dictForm.notes,
+    };
+    const res = dictEditingId
+      ? await fetch("/api/admin/shop-dictionary", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: dictEditingId, ...payload }),
+        })
+      : await fetch("/api/admin/shop-dictionary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+    if (res.ok) {
+      setDictEditingId(null);
+      setDictForm({
+        nameZh: "",
+        nameKo: "",
+        category: "기타",
+        district: "",
+        address: "",
+        phone: "",
+        notes: "",
+      });
+      refreshDictList();
+    } else {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      alert(j.error ?? "저장 실패");
+    }
+  };
+
+  const deleteDictionaryRow = async (id: number) => {
+    if (!confirm("삭제할까요?")) return;
+    const res = await fetch("/api/admin/shop-dictionary", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (res.ok) refreshDictList();
+  };
+
+  const startEditDictionary = (row: Record<string, unknown>) => {
+    setDictEditingId(Number(row.id));
+    setDictForm({
+      nameZh: String(row.name_zh ?? ""),
+      nameKo: formatShopDictKoJson(row.name_ko),
+      category: String(row.category ?? "기타"),
+      district: String(row.district ?? ""),
+      address: String(row.address ?? ""),
+      phone: String(row.phone ?? ""),
+      notes: String(row.notes ?? ""),
+    });
+  };
+
+  const cancelDictionaryForm = () => {
+    setDictEditingId(null);
+    setDictForm({
+      nameZh: "",
+      nameKo: "",
+      category: "기타",
+      district: "",
+      address: "",
+      phone: "",
+      notes: "",
+    });
+  };
+
   const statCards = [
     { key: "totalUsers", label: "유저", icon: "👥", suffix: "명" },
     { key: "totalPosts", label: "게시글", icon: "📝", suffix: "개" },
@@ -447,6 +682,7 @@ export function AdminPage() {
               ["cache", "캐시"],
               ["knowledge", "지식"],
               ["ai", "AI설정"],
+              ["shopDictionary", "가게사전"],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -772,7 +1008,37 @@ export function AdminPage() {
                       {cacheSub === "shops" && (
                         <>
                           <p className="font-medium">{String(row.name_zh ?? "")}</p>
-                          <p className="text-white/50 truncate">{String(row.address ?? "")}</p>
+                          {row.name_ko ? (
+                            <p className="text-white/50 text-[10px] mt-0.5">{String(row.name_ko)}</p>
+                          ) : null}
+                          <p className="text-white/50 truncate mt-0.5">{String(row.address ?? "")}</p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              className="px-2 py-0.5 rounded bg-white/10"
+                              onClick={() =>
+                                setShopEdit({
+                                  id,
+                                  name_zh: String(row.name_zh ?? ""),
+                                  name_ko: row.name_ko != null ? String(row.name_ko) : "",
+                                  address: String(row.address ?? ""),
+                                  phone: String(row.phone ?? ""),
+                                  rating: row.rating != null ? String(row.rating) : "",
+                                  cost: String(row.cost ?? ""),
+                                  open_time: String(row.open_time ?? ""),
+                                })
+                              }
+                            >
+                              수정
+                            </button>
+                            <button
+                              type="button"
+                              className="px-2 py-0.5 rounded bg-white/10"
+                              onClick={() => void deleteCacheRow("shops", id)}
+                            >
+                              삭제
+                            </button>
+                          </div>
                         </>
                       )}
                       {cacheSub === "reviews" && (
@@ -783,28 +1049,177 @@ export function AdminPage() {
                             <button
                               type="button"
                               className="px-2 py-0.5 rounded bg-white/10"
-                              onClick={() => void verifyReview(id, "verify")}
+                              onClick={() =>
+                                setReviewEdit({
+                                  id,
+                                  review_text: String(row.review_text ?? ""),
+                                  source: String(row.source ?? "user"),
+                                })
+                              }
                             >
-                              ✅ 확인
+                              수정
                             </button>
                             <button
                               type="button"
                               className="px-2 py-0.5 rounded bg-white/10"
-                              onClick={() => void verifyReview(id, "reject")}
+                              onClick={() => void deleteReviewRow(id)}
                             >
-                              ❌ 삭제
+                              삭제
+                            </button>
+                            <button
+                              type="button"
+                              className="px-2 py-0.5 rounded bg-accent/40"
+                              onClick={() => void verifyReview(id, "verify")}
+                            >
+                              ✅ 검증
                             </button>
                           </div>
                         </>
                       )}
                       {cacheSub === "searches" && (
-                        <p className="truncate">{String(row.query_text ?? "")}</p>
+                        <>
+                          <p className="truncate">{String(row.query_text ?? "")}</p>
+                          <div className="mt-2 flex gap-1">
+                            <button
+                              type="button"
+                              className="px-2 py-0.5 rounded bg-white/10"
+                              onClick={() => void deleteCacheRow("searches", id)}
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        </>
                       )}
-                      <div className="mt-2 flex gap-1">
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "shopDictionary" && (
+          <div className="mt-3 space-y-3">
+            <button
+              type="button"
+              onClick={() => {
+                cancelDictionaryForm();
+              }}
+              className="w-full rounded-lg bg-accent py-2 text-sm"
+            >
+              + 가게 추가
+            </button>
+
+            <div className="glass-dark rounded-2xl p-3 space-y-2">
+              <p className="text-sm text-white/80">
+                {dictEditingId ? `수정 (#${dictEditingId})` : "가게 등록"}
+              </p>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder='중국어 이름 (예: 缸桶屋(城阳店))'
+                value={dictForm.nameZh}
+                onChange={(e) => setDictForm((s) => ({ ...s, nameZh: e.target.value }))}
+              />
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="한국어 이름, 쉼표 구분 (예: 깡통집,강통집)"
+                value={dictForm.nameKo}
+                onChange={(e) => setDictForm((s) => ({ ...s, nameKo: e.target.value }))}
+              />
+              <select
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                value={dictForm.category}
+                onChange={(e) => setDictForm((s) => ({ ...s, category: e.target.value }))}
+              >
+                {DICT_CATEGORY_OPTIONS.map((c) => (
+                  <option key={c} value={c} className="bg-[#1a1a24]">
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                value={dictForm.district}
+                onChange={(e) => setDictForm((s) => ({ ...s, district: e.target.value }))}
+              >
+                <option value="" className="bg-[#1a1a24]">
+                  지역 선택
+                </option>
+                {DICT_DISTRICT_OPTIONS.map((d) => (
+                  <option key={d} value={d} className="bg-[#1a1a24]">
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="주소"
+                value={dictForm.address}
+                onChange={(e) => setDictForm((s) => ({ ...s, address: e.target.value }))}
+              />
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="전화"
+                value={dictForm.phone}
+                onChange={(e) => setDictForm((s) => ({ ...s, phone: e.target.value }))}
+              />
+              <textarea
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm min-h-[64px]"
+                placeholder="메모"
+                value={dictForm.notes}
+                onChange={(e) => setDictForm((s) => ({ ...s, notes: e.target.value }))}
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void saveDictionary()}
+                  className="flex-1 rounded-lg bg-accent py-2 text-sm"
+                >
+                  저장
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cancelDictionaryForm()}
+                  className="flex-1 rounded-lg bg-white/10 py-2 text-sm"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+
+            <input
+              className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+              placeholder="이름 검색"
+              value={dictSearch}
+              onChange={(e) => setDictSearch(e.target.value)}
+            />
+
+            {dictLoading ? (
+              <p className="text-sm text-white/50 py-4 text-center">불러오는 중...</p>
+            ) : (
+              <div className="space-y-2">
+                {filteredDictItems.map((row) => {
+                  const id = Number(row.id);
+                  return (
+                    <div key={id} className="glass-dark rounded-xl p-3 text-xs space-y-1">
+                      <p className="font-medium text-sm">{String(row.name_zh ?? "")}</p>
+                      <p className="text-white/60">{formatShopDictKoJson(row.name_ko)}</p>
+                      <p className="text-white/50">
+                        {String(row.category ?? "")}
+                        {row.district ? ` · ${String(row.district)}` : ""}
+                      </p>
+                      <div className="flex flex-wrap gap-1 pt-1">
                         <button
                           type="button"
                           className="px-2 py-0.5 rounded bg-white/10"
-                          onClick={() => void deleteCacheRow(cacheSub, id)}
+                          onClick={() => startEditDictionary(row)}
+                        >
+                          수정
+                        </button>
+                        <button
+                          type="button"
+                          className="px-2 py-0.5 rounded bg-white/10"
+                          onClick={() => void deleteDictionaryRow(id)}
                         >
                           삭제
                         </button>
@@ -1121,6 +1536,126 @@ export function AdminPage() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {shopEdit && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4"
+            onClick={() => setShopEdit(null)}
+          >
+            <div
+              className="glass-dark rounded-2xl p-4 w-full max-w-[430px] space-y-2 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-medium">가게 캐시 수정</p>
+              <label className="text-[10px] text-white/50">중국어 이름</label>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                value={shopEdit.name_zh}
+                onChange={(e) => setShopEdit((s) => (s ? { ...s, name_zh: e.target.value } : s))}
+              />
+              <label className="text-[10px] text-white/50">한국어 이름</label>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                value={shopEdit.name_ko}
+                onChange={(e) => setShopEdit((s) => (s ? { ...s, name_ko: e.target.value } : s))}
+              />
+              <label className="text-[10px] text-white/50">주소</label>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                value={shopEdit.address}
+                onChange={(e) => setShopEdit((s) => (s ? { ...s, address: e.target.value } : s))}
+              />
+              <label className="text-[10px] text-white/50">전화</label>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                value={shopEdit.phone}
+                onChange={(e) => setShopEdit((s) => (s ? { ...s, phone: e.target.value } : s))}
+              />
+              <label className="text-[10px] text-white/50">평점</label>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                value={shopEdit.rating}
+                onChange={(e) => setShopEdit((s) => (s ? { ...s, rating: e.target.value } : s))}
+              />
+              <label className="text-[10px] text-white/50">가격</label>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                value={shopEdit.cost}
+                onChange={(e) => setShopEdit((s) => (s ? { ...s, cost: e.target.value } : s))}
+              />
+              <label className="text-[10px] text-white/50">영업시간</label>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                value={shopEdit.open_time}
+                onChange={(e) => setShopEdit((s) => (s ? { ...s, open_time: e.target.value } : s))}
+              />
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  className="flex-1 rounded-lg bg-accent py-2 text-sm"
+                  onClick={() => void saveShopCacheEdit()}
+                >
+                  저장
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 rounded-lg bg-white/10 py-2 text-sm"
+                  onClick={() => setShopEdit(null)}
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {reviewEdit && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4"
+            onClick={() => setReviewEdit(null)}
+          >
+            <div
+              className="glass-dark rounded-2xl p-4 w-full max-w-[430px] space-y-2 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-medium">리뷰 캐시 수정</p>
+              <label className="text-[10px] text-white/50">소스</label>
+              <select
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                value={reviewEdit.source}
+                onChange={(e) => setReviewEdit((s) => (s ? { ...s, source: e.target.value } : s))}
+              >
+                {REVIEW_SOURCE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt} className="bg-[#1a1a24]">
+                    {opt}
+                  </option>
+                ))}
+              </select>
+              <label className="text-[10px] text-white/50">리뷰 텍스트</label>
+              <textarea
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm min-h-[120px]"
+                value={reviewEdit.review_text}
+                onChange={(e) => setReviewEdit((s) => (s ? { ...s, review_text: e.target.value } : s))}
+              />
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  className="flex-1 rounded-lg bg-accent py-2 text-sm"
+                  onClick={() => void saveReviewEdit()}
+                >
+                  저장
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 rounded-lg bg-white/10 py-2 text-sm"
+                  onClick={() => setReviewEdit(null)}
+                >
+                  취소
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

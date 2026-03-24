@@ -11,7 +11,7 @@ export async function GET(request: Request) {
 
     if (type === "shops") {
       const [rows] = await pool.query(
-        "SELECT id, name_zh, name_ko, address, rating, source, cached_at, trust_score FROM shop_cache ORDER BY cached_at DESC LIMIT 100"
+        "SELECT id, name_zh, name_ko, address, phone, rating, cost, open_time, source, cached_at, trust_score FROM shop_cache ORDER BY cached_at DESC LIMIT 100"
       );
       return NextResponse.json({ items: rows });
     }
@@ -65,10 +65,84 @@ export async function PUT(request: Request) {
       id?: unknown;
       action?: unknown;
       searchKeyword?: unknown;
+      updates?: Record<string, unknown>;
+      reviewText?: unknown;
+      source?: unknown;
     };
     const type = typeof body.type === "string" ? body.type : "";
     const action = typeof body.action === "string" ? body.action : "";
     const id = typeof body.id === "number" ? body.id : Number(body.id);
+
+    if (type === "shops" && id > 0) {
+      const u = (body.updates ?? body) as {
+        nameZh?: string;
+        nameKo?: string;
+        address?: unknown;
+        phone?: unknown;
+        rating?: unknown;
+        cost?: unknown;
+        openTime?: unknown;
+      };
+      const updates: string[] = [];
+      const params: unknown[] = [];
+
+      if (typeof u.nameZh === "string" && u.nameZh.trim()) {
+        updates.push("name_zh = ?");
+        params.push(u.nameZh.trim());
+      }
+      if (typeof u.nameKo === "string") {
+        updates.push("name_ko = ?");
+        params.push(u.nameKo.trim() || null);
+      }
+      if (u.address !== undefined) {
+        updates.push("address = ?");
+        params.push(u.address === null || u.address === "" ? null : String(u.address));
+      }
+      if (u.phone !== undefined) {
+        updates.push("phone = ?");
+        params.push(u.phone === null || u.phone === "" ? null : String(u.phone));
+      }
+      if (u.rating !== undefined) {
+        updates.push("rating = ?");
+        const raw = u.rating;
+        if (raw === null || raw === "") {
+          params.push(null);
+        } else {
+          const r = Number.parseFloat(String(raw));
+          params.push(Number.isFinite(r) ? r : null);
+        }
+      }
+      if (u.cost !== undefined) {
+        updates.push("cost = ?");
+        params.push(u.cost === null || u.cost === "" ? null : String(u.cost));
+      }
+      if (u.openTime !== undefined) {
+        updates.push("open_time = ?");
+        params.push(u.openTime === null || u.openTime === "" ? null : String(u.openTime));
+      }
+
+      if (updates.length === 0) {
+        return NextResponse.json({ error: "no fields to update" }, { status: 400 });
+      }
+      params.push(id);
+      await pool.query(`UPDATE shop_cache SET ${updates.join(", ")} WHERE id = ?`, params);
+      return NextResponse.json({ success: true });
+    }
+
+    if (type === "reviews" && action === "edit" && id > 0) {
+      const reviewText =
+        typeof body.reviewText === "string" ? body.reviewText : String(body.reviewText ?? "");
+      const source = typeof body.source === "string" ? body.source : "";
+      if (!source) {
+        return NextResponse.json({ error: "source required" }, { status: 400 });
+      }
+      await pool.query("UPDATE review_cache SET review_text = ?, source = ? WHERE id = ?", [
+        reviewText,
+        source,
+        id,
+      ]);
+      return NextResponse.json({ success: true });
+    }
 
     if (action === "report") {
       const searchKeyword =
@@ -99,7 +173,7 @@ export async function PUT(request: Request) {
 
     if (action === "verify") {
       await pool.query(
-        "UPDATE review_cache SET is_verified = TRUE, is_reported = FALSE WHERE id = ?",
+        "UPDATE review_cache SET is_verified = TRUE, is_reported = FALSE, trust_score = 100 WHERE id = ?",
         [id]
       );
       return NextResponse.json({ success: true });
