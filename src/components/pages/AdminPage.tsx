@@ -422,44 +422,6 @@ export function AdminPage() {
     if (res.ok) refreshCache();
   };
 
-  const handleKnowledgeFile = async (file: File) => {
-    let content = "";
-    if (file.type === "application/pdf") {
-      const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        content +=
-          textContent.items
-            .map((item) => ("str" in item ? String((item as { str: string }).str) : ""))
-            .join(" ") + "\n";
-      }
-    } else {
-      content = await file.text();
-    }
-    const res = await fetch("/api/admin/knowledge", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: file.name,
-        content: content.slice(0, 50000),
-        fileType: file.type.includes("pdf") ? "pdf" : "text",
-        category: kbCategory || "일반",
-      }),
-    });
-    if (res.ok) {
-      void fetch("/api/admin/knowledge")
-        .then((r) => r.json())
-        .then((d: { items?: typeof kbItems }) => {
-          if (Array.isArray(d.items)) setKbItems(d.items);
-        });
-    }
-  };
-
   const statCards = [
     { key: "totalUsers", label: "유저", icon: "👥", suffix: "명" },
     { key: "totalPosts", label: "게시글", icon: "📝", suffix: "개" },
@@ -858,32 +820,25 @@ export function AdminPage() {
         {tab === "knowledge" && (
           <div className="mt-3 space-y-3">
             <div className="glass-dark rounded-2xl p-3 space-y-2">
-              <p className="text-sm text-white/80">파일 업로드 (PDF / 텍스트)</p>
-              <input
-                type="file"
-                accept=".pdf,.txt,text/plain,application/pdf"
-                className="text-xs w-full"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleKnowledgeFile(f);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <div className="glass-dark rounded-2xl p-3 space-y-2">
-              <p className="text-sm text-white/80">직접 입력</p>
+              <p className="text-sm text-white/80">지식 등록 (텍스트)</p>
               <input
                 className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
                 placeholder="제목"
                 value={kbTitle}
                 onChange={(e) => setKbTitle(e.target.value)}
               />
-              <input
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
-                placeholder="카테고리"
+              <label className="block text-xs text-white/50">카테고리</label>
+              <select
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white"
                 value={kbCategory}
                 onChange={(e) => setKbCategory(e.target.value)}
-              />
+              >
+                {["일반", "비자", "의료", "교육", "부동산", "생활"].map((c) => (
+                  <option key={c} value={c} className="bg-[#1a1a24]">
+                    {c}
+                  </option>
+                ))}
+              </select>
               <textarea
                 className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm min-h-[100px]"
                 placeholder="내용"

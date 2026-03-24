@@ -37,41 +37,34 @@ const FREE_QUOTA_EXCEEDED_ZH = `您已用完 5 次免费提问。
 - 商圈分析（即将上线）
 - 升学咨询（即将上线）`;
 
-/** localStorage 무료 AI 질문 5회 — 마지막 주기 첫 질문 시각 기준 24시간 후 리셋 */
-function syncDailyAiDateAndCount(): number {
+/** localStorage 무료 AI 질문 — 24시간 경과 시 카운트 리셋 */
+function readAiQuotaAfterReset(): number {
   if (typeof window === "undefined") return 0;
   const now = Date.now();
-  let firstTime = parseInt(localStorage.getItem("bababang-ai-first-time") || "0", 10);
-  const count = parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
-  if (count > 0 && firstTime === 0) {
-    firstTime = now;
-    localStorage.setItem("bababang-ai-first-time", String(firstTime));
-  }
+  const firstTime = parseInt(localStorage.getItem("bababang-ai-first-time") || "0", 10);
+  let todayCount = parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
   if (firstTime > 0 && now - firstTime > 24 * 60 * 60 * 1000) {
+    todayCount = 0;
     localStorage.setItem("bababang-ai-count", "0");
     localStorage.setItem("bababang-ai-first-time", "0");
-    return 0;
   }
-  return count;
+  return todayCount;
 }
 
-function bumpDailyAiCount() {
+/** AI 스트림 done 시에만 호출 */
+function bumpAiQuotaOnSuccess() {
   if (typeof window === "undefined") return;
-  const c = syncDailyAiDateAndCount();
-  if (c === 0) {
+  const currentCount = parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
+  const currentFirst = parseInt(localStorage.getItem("bababang-ai-first-time") || "0", 10);
+  localStorage.setItem("bababang-ai-count", String(currentCount + 1));
+  if (!currentFirst) {
     localStorage.setItem("bababang-ai-first-time", String(Date.now()));
   }
-  localStorage.setItem("bababang-ai-count", String(c + 1));
 }
 
 const MASTER_PHONES = ["18514747772"];
-
-function getFreeAiLimit(): number {
-  if (typeof window === "undefined") return 5;
-  const v = parseInt(window.localStorage.getItem("bababang-free-ai-limit") || "5", 10);
-  if (!Number.isFinite(v) || v < 1) return 5;
-  return Math.min(99, v);
-}
+const MASTER_IDS = ["1", "2"];
+const FREE_AI_DAILY_LIMIT = 5;
 
 function getCacheMaxAgeDays(): number {
   if (typeof window === "undefined") return 7;
@@ -327,6 +320,7 @@ async function persistFeedbackToDb(payload: {
 }
 
 export function ChatPanel() {
+  const user = useStore((s) => s.user);
   const {
     chatOpen,
     setChatOpen,
@@ -334,8 +328,6 @@ export function ChatPanel() {
     addChatMessage,
     updateLastAiMessage,
     lang,
-    user,
-    canAskQuestion,
     incrementQuestion,
     deductToken,
     setUser,
@@ -369,10 +361,48 @@ export function ChatPanel() {
   const t = i18n[lang].chat;
   const tokens = user?.tokens ?? 0;
   const isFree = user?.plan === "free";
+
+  let lsPhone = "";
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.localStorage.getItem("bababang-user");
+      if (raw) {
+        lsPhone = String(
+          (JSON.parse(raw) as { phone?: string }).phone ?? ""
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  const effectivePhone = String(user?.phone || lsPhone || "");
+  const digitsOnly = (p: string) => p.replace(/\D/g, "");
+  const phoneMatchesMaster =
+    Boolean(effectivePhone) &&
+    MASTER_PHONES.some(
+      (m) =>
+        effectivePhone === m ||
+        digitsOnly(effectivePhone) === digitsOnly(m) ||
+        digitsOnly(effectivePhone).endsWith(digitsOnly(m))
+    );
   const isMaster = Boolean(
-    user && MASTER_PHONES.includes(String(user.phone))
+    user &&
+      (phoneMatchesMaster ||
+        (currentUserId != null &&
+          MASTER_IDS.includes(String(currentUserId))))
   );
-  const atDailyLimit = isFree && !isMaster && !canAskQuestion();
+  if (typeof window !== "undefined") {
+    console.log(
+      "=== 마스터 체크: phone=" +
+        (user?.phone ?? "") +
+        ", isMaster=" +
+        isMaster +
+        " ==="
+    );
+  }
+
+  const atDailyLimit =
+    isFree && !isMaster && readAiQuotaAfterReset() >= FREE_AI_DAILY_LIMIT;
 
   const toastThanksGood =
     lang === "zh" ? "谢谢！我们会努力回答得更好 🙂" : "감사합니다! 더 좋은 답변 드릴게요 😊";
@@ -396,9 +426,8 @@ export function ChatPanel() {
   }, [chatOpen]);
 
   const freeAiRemaining = useMemo(() => {
-    const used = syncDailyAiDateAndCount();
-    const limit = getFreeAiLimit();
-    return Math.max(0, limit - used);
+    const used = readAiQuotaAfterReset();
+    return Math.max(0, FREE_AI_DAILY_LIMIT - used);
   }, [quotaVersion, chatOpen]);
 
   useEffect(() => {
@@ -711,9 +740,22 @@ export function ChatPanel() {
     if (!requireLogin()) return;
 
     const master = isMaster;
-    const freeLimit = getFreeAiLimit();
-    const todayCount = syncDailyAiDateAndCount();
-    if (!master && todayCount >= freeLimit) {
+    const now = Date.now();
+    const firstTime = parseInt(
+      localStorage.getItem("bababang-ai-first-time") || "0",
+      10
+    );
+    let todayCount = parseInt(
+      localStorage.getItem("bababang-ai-count") || "0",
+      10
+    );
+    if (firstTime > 0 && now - firstTime > 24 * 60 * 60 * 1000) {
+      todayCount = 0;
+      localStorage.setItem("bababang-ai-count", "0");
+      localStorage.setItem("bababang-ai-first-time", "0");
+    }
+
+    if (!master && todayCount >= FREE_AI_DAILY_LIMIT) {
       addChatMessage({
         role: "ai",
         text:
@@ -725,10 +767,6 @@ export function ChatPanel() {
 
     if (!master && user && user.tokens <= 0) {
       addChatMessage({ role: "ai", text: t.noTokens });
-      return;
-    }
-    if (!master && !canAskQuestion()) {
-      addChatMessage({ role: "ai", text: t.dailyLimitReached });
       return;
     }
     touchChatActivity();
@@ -830,7 +868,7 @@ export function ChatPanel() {
               })();
             }
             if (!master) {
-              bumpDailyAiCount();
+              bumpAiQuotaOnSuccess();
             }
             setQuotaVersion((v) => v + 1);
             incrementQuestion();
@@ -1450,9 +1488,9 @@ export function ChatPanel() {
                   "무료 질문을 모두 사용했어요"
                 )
               ) : lang === "zh" ? (
-                `今日剩余免费提问: ${freeAiRemaining}/${getFreeAiLimit()}`
+                `今日剩余免费提问: ${freeAiRemaining}/${FREE_AI_DAILY_LIMIT}`
               ) : (
-                `오늘 남은 무료 질문: ${freeAiRemaining}/${getFreeAiLimit()}`
+                `오늘 남은 무료 질문: ${freeAiRemaining}/${FREE_AI_DAILY_LIMIT}`
               )}
             </p>
             {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
@@ -1668,11 +1706,11 @@ export function ChatPanel() {
                   <div
                     style={{
                       position: "relative",
-                      width: 140,
-                      height: 140,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
+                      width: 140,
+                      height: 140,
                     }}
                   >
                     {isVoiceTranslateListening ? (
@@ -1684,8 +1722,7 @@ export function ChatPanel() {
                             height: 80,
                             borderRadius: "50%",
                             border: "2px solid rgba(239,68,68,0.4)",
-                            animation: "bababang-pulse 1.5s ease-in-out infinite",
-                            animationDelay: "0s",
+                            animation: "pulse 1.5s ease-in-out infinite",
                           }}
                         />
                         <div
@@ -1695,7 +1732,7 @@ export function ChatPanel() {
                             height: 100,
                             borderRadius: "50%",
                             border: "2px solid rgba(239,68,68,0.2)",
-                            animation: "bababang-pulse 1.5s ease-in-out infinite",
+                            animation: "pulse 1.5s ease-in-out infinite",
                             animationDelay: "0.3s",
                           }}
                         />
@@ -1706,7 +1743,7 @@ export function ChatPanel() {
                             height: 120,
                             borderRadius: "50%",
                             border: "2px solid rgba(239,68,68,0.1)",
-                            animation: "bababang-pulse 1.5s ease-in-out infinite",
+                            animation: "pulse 1.5s ease-in-out infinite",
                             animationDelay: "0.6s",
                           }}
                         />

@@ -1101,25 +1101,38 @@ export async function POST(request: Request) {
 
         }
 
+        const appendKbContext = (kbRows: RowDataPacket[]) => {
+          if (!Array.isArray(kbRows) || kbRows.length === 0) return;
+          searchContext += "\n\n=== BabaBang 지식 베이스 ===\n";
+          for (const kb of kbRows) {
+            searchContext +=
+              "[" +
+              String(kb.title ?? "") +
+              "]\n" +
+              String(kb.content ?? "").slice(0, 1000) +
+              "\n\n";
+          }
+          console.log("=== 지식 베이스 매칭: " + kbRows.length + "개 ===");
+        };
+
         try {
           const [kbRows] = (await pool.query(
             "SELECT title, content FROM knowledge_base WHERE is_active = TRUE AND MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE) LIMIT 3",
             [userMessage]
           )) as unknown as [RowDataPacket[]];
-          if (Array.isArray(kbRows) && kbRows.length > 0) {
-            searchContext += "\n\n=== BabaBang 지식 베이스 ===\n";
-            for (const kb of kbRows) {
-              searchContext +=
-                "[" +
-                String(kb.title ?? "") +
-                "]\n" +
-                String(kb.content ?? "").slice(0, 1000) +
-                "\n\n";
-            }
-            console.log("=== 지식 베이스 매칭: " + kbRows.length + "개 ===");
+          appendKbContext(kbRows);
+        } catch {
+          try {
+            const slice = userMessage.slice(0, 20);
+            const like = "%" + slice + "%";
+            const [kbRows] = (await pool.query(
+              "SELECT title, content FROM knowledge_base WHERE is_active = TRUE AND (content LIKE ? OR title LIKE ?) LIMIT 3",
+              [like, like]
+            )) as unknown as [RowDataPacket[]];
+            appendKbContext(kbRows);
+          } catch (e2) {
+            console.log("=== 지식 베이스 검색 실패 ===", e2);
           }
-        } catch (e) {
-          console.log("=== 지식 베이스 검색 실패 ===", e);
         }
 
         const locationContext = "";

@@ -350,10 +350,14 @@ export async function GET() {
         uploaded_by INT,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_category (category),
-        FULLTEXT idx_content (content)
+        INDEX idx_category (category)
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
+    try {
+      await conn.query("ALTER TABLE knowledge_base ADD FULLTEXT idx_content (content)");
+    } catch {
+      /* 이미 있음 또는 미지원 */
+    }
 
     // 테스트 유저 생성
     await conn.query(`
