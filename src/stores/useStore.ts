@@ -81,6 +81,15 @@ interface AppState {
   openWritePost: () => void;
   closeWritePost: () => void;
 
+  /** 커뮤니티 필터 (글쓰기 시 초기 카테고리용) */
+  currentCommunityCategory: string;
+  setCurrentCommunityCategory: (c: string) => void;
+
+  /** 전역 토스트 */
+  toastMessage: { text: string; type: "success" | "info" | "warning" } | null;
+  showToast: (text: string, type: "success" | "info" | "warning") => void;
+  clearToast: () => void;
+
   // 유저 / 인증
   isLoggedIn: boolean;
   currentUserId: number | null;
@@ -245,6 +254,13 @@ export const useStore = create<AppState>((set, get) => ({
   writePostOpen: false,
   openWritePost: () => set({ writePostOpen: true }),
   closeWritePost: () => set({ writePostOpen: false }),
+
+  currentCommunityCategory: "전체",
+  setCurrentCommunityCategory: (c) => set({ currentCommunityCategory: c }),
+
+  toastMessage: null,
+  showToast: (text, type) => set({ toastMessage: { text, type } }),
+  clearToast: () => set({ toastMessage: null }),
 
   isLoggedIn: false,
   currentUserId: null,

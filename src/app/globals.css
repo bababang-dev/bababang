@@ -276,6 +276,14 @@ body {
   box-shadow: var(--shadow-light) !important;
 }
 
+.category-scroll::-webkit-scrollbar {
+  display: none;
+}
+.category-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* ═══════════════════════════════════
    PAGE SCROLL
    ═══════════════════════════════════ */

@@ -1126,6 +1126,16 @@ ${searchContext}`
             });
           }
 
+          if (!matched) {
+            try {
+              const nameForSearch = shortName || zhName;
+              const solo = await amapSearch(nameForSearch, "青岛");
+              if (solo?.length) matched = solo[0];
+            } catch {
+              /* ignore */
+            }
+          }
+
           const dictMatch = shopDict.find((s) => {
             if (!s.zh?.trim()) return false;
             const dZh = s.zh.split("(")[0].split("（")[0].trim();
@@ -1162,9 +1172,10 @@ ${searchContext}`
           }
         }
 
-        const cardsNeedingInfo = allRecommendedShops.filter((s) => !s.address && s.name);
-        if (cardsNeedingInfo.length > 0) {
-          const extraSearches = cardsNeedingInfo.map(async (shop) => {
+        const needInfo = allRecommendedShops.filter((s) => !s.address && s.name);
+        console.log("=== 추가 검색 필요: " + needInfo.length + "개 ===");
+        if (needInfo.length > 0) {
+          const extraSearches = needInfo.map(async (shop) => {
             try {
               const zhName = shop.name.split("(")[0].split("（")[0].trim();
               const results = await amapSearch(zhName, "青岛");
@@ -1174,7 +1185,7 @@ ${searchContext}`
                 shop.tel = poi.tel || "";
                 shop.rating = poi.rating || "";
                 shop.cost = poi.cost || "";
-                shop.openTime = poi.openTime || "";
+                shop.openTime = poi.openTime ? String(poi.openTime) : "";
                 if (poi.photos?.length) shop.photos = poi.photos;
                 shop.lat = poi.location ? poi.location.split(",")[1]?.trim() ?? "" : shop.lat;
                 shop.lng = poi.location ? poi.location.split(",")[0]?.trim() ?? "" : shop.lng;
@@ -1190,14 +1201,13 @@ ${searchContext}`
           "=== 추천 카드: " + allRecommendedShops.map((s) => s.koreanName || s.name).join(", ") + " ==="
         );
 
-        const isAskingQuestion =
-          /[\?？]/.test(fullContent) &&
-          (fullContent.includes("어떤") ||
-            fullContent.includes("찾으세요") ||
-            fullContent.includes("어느") ||
-            fullContent.includes("원하세요") ||
-            fullContent.includes("종류") ||
-            /🍖|🍜|🍛|☕|🍺|🏥|📚|💇|🏠/.test(fullContent));
+        const emojiLines = fullContent.split("\n").filter((line) => {
+          const t = line.trim();
+          if (!t) return false;
+          const code = t.codePointAt(0) || 0;
+          return code > 0x1f000 || (code >= 0x2600 && code <= 0x27bf);
+        });
+        const isAskingQuestion = emojiLines.length >= 3;
 
         const finalRecommendedShops = isAskingQuestion ? [] : allRecommendedShops;
 

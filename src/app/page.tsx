@@ -20,6 +20,7 @@ import { WritePostModal } from "@/components/modals/WritePostModal";
 import { WritePromotionModal } from "@/components/modals/WritePromotionModal";
 import { MapActionSheet } from "@/components/modals/MapActionSheet";
 import { LoginModal } from "@/components/modals/LoginModal";
+import { Toast } from "@/components/common/Toast";
 import type { TabKey } from "@/types";
 
 const pages: Record<TabKey, React.ReactNode> = {
@@ -254,6 +255,8 @@ export default function MainPage() {
       <FloatingSecondaryFAB />
 
       <ChatPanel />
+
+      <Toast />
 
       <AnimatePresence>
         {detailView && !detailView.startsWith("pl") && (

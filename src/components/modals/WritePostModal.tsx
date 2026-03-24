@@ -64,6 +64,7 @@ export function WritePostModal() {
     triggerPostsRefresh,
     currentUserId,
     setUser,
+    showToast,
   } = useStore();
   useModalBodyLock(writePostOpen);
   const [category, setCategory] = useState<(typeof categories)[number]>("자유");
@@ -85,8 +86,6 @@ export function WritePostModal() {
   const [aiPolishing, setAiPolishing] = useState(false);
   const [aiOriginalContent, setAiOriginalContent] = useState("");
   const [aiState, setAiState] = useState<"idle" | "ai" | "restored">("idle");
-  const [postSubmitToast, setPostSubmitToast] = useState<string | null>(null);
-  const [tokenEarnedMark, setTokenEarnedMark] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categoryZh = useMemo(() => {
@@ -105,9 +104,19 @@ export function WritePostModal() {
   }, [category]);
 
   useEffect(() => {
+    if (!writePostOpen) return;
+    const c = useStore.getState().currentCommunityCategory;
+    if (c === "전체" || c === "인기🔥") {
+      setCategory("자유");
+    } else if (categories.includes(c as (typeof categories)[number])) {
+      setCategory(c as (typeof categories)[number]);
+    } else {
+      setCategory("자유");
+    }
+  }, [writePostOpen]);
+
+  useEffect(() => {
     if (!writePostOpen) {
-      setPostSubmitToast(null);
-      setTokenEarnedMark(false);
       setAiState("idle");
       setAiOriginalContent("");
       setTradePrice("");
@@ -265,12 +274,7 @@ export function WritePostModal() {
       setTagsText("");
       setAiState("idle");
       setAiOriginalContent("");
-      setPostSubmitToast(null);
-      setTokenEarnedMark(false);
     };
-
-    let tokenToast: string | null = null;
-    let tokenEarned = false;
 
     try {
       const res = await fetch("/api/posts", {
@@ -318,13 +322,25 @@ export function WritePostModal() {
             error?: string;
             tokens?: number;
           };
-          if (td.qualityFailed && td.message) {
-            tokenToast = td.message;
+          if (td.qualityFailed) {
+            showToast(
+              lang === "zh"
+                ? "📝 写得更详细即可获得代币"
+                : "📝 더 자세한 내용을 작성하면 토큰을 받을 수 있어요",
+              "info"
+            );
           } else if (td.limited && td.error) {
-            tokenToast = td.error;
-          } else if (td.success && td.message) {
-            tokenToast = td.message;
-            tokenEarned = true;
+            showToast(
+              lang === "zh"
+                ? "今日代币获取已达上限(20)"
+                : "오늘 토큰 획득 상한(20)에 도달했어요",
+              "warning"
+            );
+          } else if (td.success) {
+            showToast(
+              lang === "zh" ? "🎉 获得 2 枚代币！" : "🎉 토큰 2개를 받았어요!",
+              "success"
+            );
             if (typeof td.tokens === "number" && user) {
               setUser({ ...user, tokens: td.tokens });
             }
@@ -339,11 +355,6 @@ export function WritePostModal() {
       addPost(post);
     }
 
-    if (tokenToast) {
-      setPostSubmitToast(tokenToast);
-      setTokenEarnedMark(tokenEarned);
-      await new Promise((r) => setTimeout(r, 2200));
-    }
     finishClose();
   };
 
@@ -356,41 +367,29 @@ export function WritePostModal() {
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[70] flex flex-col bg-[#f5f6fa] text-black max-w-[430px] mx-auto"
     >
-      <div className="h-14 shrink-0 px-4 flex items-center justify-between border-b border-black/10">
+      <div className="min-h-14 shrink-0 px-4 py-2 flex items-center justify-between border-b border-black/10 gap-2">
         <button
           type="button"
           onClick={closeWritePost}
-          className="p-2 rounded-full hover:bg-black/5"
+          className="p-2 rounded-full hover:bg-black/5 shrink-0"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <h2 className="font-outfit font-semibold">글쓰기</h2>
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={isBusy || aiPolishing}
-          className="px-3 py-1.5 rounded-lg bg-accent text-white text-sm disabled:opacity-50"
-        >
-          등록
-        </button>
-      </div>
-      <div className="shrink-0 px-4 py-1.5 border-b border-black/5 flex items-center justify-between gap-2">
-        <p className="text-[11px] text-[#a29bfe] flex-1 leading-snug">
-          {lang === "zh"
-            ? "若帖子通过质量审核，可获得 2 枚代币"
-            : "이 글이 품질 기준을 통과하면 토큰 2개를 받아요"}
-        </p>
-        {tokenEarnedMark ? (
-          <span className="text-[11px] font-medium text-accent whitespace-nowrap shrink-0">
-            {lang === "zh" ? "已获得 ✓" : "토큰 받기 ✓"}
-          </span>
-        ) : null}
-      </div>
-      {postSubmitToast ? (
-        <div className="shrink-0 mx-4 mt-2 mb-1 rounded-lg bg-black/80 text-white text-sm px-3 py-2 text-center">
-          {postSubmitToast}
+        <h2 className="font-outfit font-semibold flex-1 text-center">글쓰기</h2>
+        <div className="flex flex-col items-end gap-1 shrink-0 min-w-[4.5rem]">
+          <p className="text-[11px] text-[#a29bfe] text-right leading-tight max-w-[140px]">
+            {lang === "zh" ? "50字以上可获 2 枚代币 🪙" : "50자 이상 작성시 토큰 2개 지급 🪙"}
+          </p>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={isBusy || aiPolishing}
+            className="px-3 py-1.5 rounded-lg bg-accent text-white text-sm disabled:opacity-50"
+          >
+            등록
+          </button>
         </div>
-      ) : null}
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin -mx-1 px-1">

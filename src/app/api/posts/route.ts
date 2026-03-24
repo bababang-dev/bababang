@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
+    const sort = searchParams.get("sort");
 
     let query = `
       SELECT p.*, u.nickname as author, u.avatar 
@@ -22,7 +23,12 @@ export async function GET(request: Request) {
       params.push(category);
     }
 
-    query += " ORDER BY p.created_at DESC LIMIT 50";
+    if (sort === "popular") {
+      query +=
+        " ORDER BY (COALESCE(p.likes,0) + COALESCE(p.views,0)) DESC, p.created_at DESC LIMIT 50";
+    } else {
+      query += " ORDER BY p.created_at DESC LIMIT 50";
+    }
 
     const [rows] = await pool.query(query, params);
     return NextResponse.json({ posts: rows });
