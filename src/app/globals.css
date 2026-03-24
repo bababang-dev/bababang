@@ -845,3 +845,14 @@ body {
 
 .post-tag-dark { padding: 2px 8px; border-radius: 8px; font-size: 11px; background: var(--glass); color: var(--text-muted); }
 .post-tag-light { padding: 2px 8px; border-radius: 8px; font-size: 11px; background: #f0f0f5; color: var(--text-light-muted); }
+
+@keyframes bababang-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}

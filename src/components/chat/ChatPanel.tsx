@@ -64,6 +64,22 @@ function bumpDailyAiCount() {
   localStorage.setItem("bababang-ai-count", String(c + 1));
 }
 
+const MASTER_IDS = ["1"];
+
+function getFreeAiLimit(): number {
+  if (typeof window === "undefined") return 5;
+  const v = parseInt(window.localStorage.getItem("bababang-free-ai-limit") || "5", 10);
+  if (!Number.isFinite(v) || v < 1) return 5;
+  return Math.min(99, v);
+}
+
+function getCacheMaxAgeDays(): number {
+  if (typeof window === "undefined") return 7;
+  const v = parseInt(window.localStorage.getItem("bababang-cache-expire-days") || "7", 10);
+  if (!Number.isFinite(v) || v < 1) return 7;
+  return Math.min(90, v);
+}
+
 function cleanResponse(text: string): string {
   return text
     .replace(/\*\*/g, "")
@@ -353,7 +369,9 @@ export function ChatPanel() {
   const t = i18n[lang].chat;
   const tokens = user?.tokens ?? 0;
   const isFree = user?.plan === "free";
-  const atDailyLimit = isFree && !canAskQuestion();
+  const isMaster =
+    currentUserId != null && MASTER_IDS.includes(String(currentUserId));
+  const atDailyLimit = isFree && !isMaster && !canAskQuestion();
 
   const toastThanksGood =
     lang === "zh" ? "谢谢！我们会努力回答得更好 🙂" : "감사합니다! 더 좋은 답변 드릴게요 😊";
@@ -378,7 +396,8 @@ export function ChatPanel() {
 
   const freeAiRemaining = useMemo(() => {
     const used = syncDailyAiDateAndCount();
-    return Math.max(0, 5 - used);
+    const limit = getFreeAiLimit();
+    return Math.max(0, limit - used);
   }, [quotaVersion, chatOpen]);
 
   useEffect(() => {
@@ -415,9 +434,56 @@ export function ChatPanel() {
   const voiceRecognitionRef = useRef<{ stop: () => void } | null>(null);
   const [voiceTranslateMode, setVoiceTranslateMode] = useState(false);
   const [voiceLang, setVoiceLang] = useState<"ko" | "zh">("ko");
-  const [voiceResult, setVoiceResult] = useState({ original: "", translated: "" });
+  const [voiceResult, setVoiceResult] = useState({
+    original: "",
+    translated: "",
+    isInterim: false,
+  });
   const [isVoiceTranslateListening, setIsVoiceTranslateListening] = useState(false);
+  const [voiceMicPhase, setVoiceMicPhase] = useState<
+    "idle" | "listening" | "translating" | "done"
+  >("idle");
+  const [voiceHistory, setVoiceHistory] = useState<
+    Array<{ original: string; translated: string; lang: "ko" | "zh" }>
+  >([]);
+  const voiceCombinedRef = useRef("");
+  const voicePendingStopRef = useRef(false);
   const [isVoiceChatListening, setIsVoiceChatListening] = useState(false);
+
+  useEffect(() => {
+    if (!voiceTranslateMode) {
+      window.speechSynthesis.cancel();
+      try {
+        voiceRecognitionRef.current?.stop();
+      } catch {
+        /* ignore */
+      }
+      voiceRecognitionRef.current = null;
+      setIsVoiceTranslateListening(false);
+      setVoiceMicPhase("idle");
+    }
+  }, [voiceTranslateMode]);
+
+  const reportInaccurate = async () => {
+    const kw = lastAiUserMessageRef.current.trim();
+    if (!kw) return;
+    try {
+      await fetch("/api/admin/cache", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "reviews",
+          searchKeyword: kw,
+          action: "report",
+        }),
+      });
+      setToast(
+        lang === "zh" ? "已反馈，我们将优化缓存。" : "반영했어요. 캐시를 조정할게요."
+      );
+    } catch {
+      setToast(lang === "zh" ? "提交失败" : "전송에 실패했어요.");
+    }
+  };
 
   const handleImageUpload = (file: File) => {
     if (!requireLogin()) return;
@@ -445,35 +511,93 @@ export function ChatPanel() {
     reader.readAsDataURL(file);
   };
 
+  const playVoiceTts = (text: string) => {
+    if (!text.trim()) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voiceLang === "ko" ? "zh-CN" : "ko-KR";
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const translateVoiceText = async (transcript: string) => {
+    const trimmed = transcript.trim();
+    if (!trimmed) {
+      setVoiceMicPhase("idle");
+      return;
+    }
+    setVoiceMicPhase("translating");
+    setIsVoiceTranslateListening(false);
+    try {
+      const targetLang = voiceLang === "ko" ? "중국어" : "한국어";
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: trimmed, targetLang }),
+      });
+      const data = (await res.json()) as { translation?: string };
+      const translated = data.translation ?? "";
+      setVoiceResult({
+        original: trimmed,
+        translated,
+        isInterim: false,
+      });
+      setVoiceHistory((prev) => [
+        ...prev,
+        { original: trimmed, translated, lang: voiceLang },
+      ]);
+      setVoiceMicPhase("done");
+      playVoiceTts(translated);
+    } catch {
+      setVoiceResult((prev) => ({
+        ...prev,
+        original: trimmed,
+        translated: "번역 실패",
+        isInterim: false,
+      }));
+      setVoiceMicPhase("idle");
+    }
+    voiceCombinedRef.current = "";
+  };
+
   const startVoiceTranslate = () => {
     if (isVoiceTranslateListening && voiceRecognitionRef.current) {
+      voicePendingStopRef.current = true;
       try {
         voiceRecognitionRef.current.stop();
       } catch {
         /* ignore */
       }
-      voiceRecognitionRef.current = null;
-      setIsVoiceTranslateListening(false);
       return;
     }
     const w = window as unknown as {
       SpeechRecognition?: new () => {
         lang: string;
         interimResults: boolean;
+        continuous: boolean;
         maxAlternatives: number;
         start: () => void;
         stop: () => void;
-        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
+        onresult:
+          | ((e: {
+              results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }>;
+            }) => void)
+          | null;
         onerror: (() => void) | null;
         onend: (() => void) | null;
       };
       webkitSpeechRecognition?: new () => {
         lang: string;
         interimResults: boolean;
+        continuous: boolean;
         maxAlternatives: number;
         start: () => void;
         stop: () => void;
-        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
+        onresult:
+          | ((e: {
+              results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }>;
+            }) => void)
+          | null;
         onerror: (() => void) | null;
         onend: (() => void) | null;
       };
@@ -487,46 +611,53 @@ export function ChatPanel() {
       );
       return;
     }
+    voicePendingStopRef.current = false;
+    voiceCombinedRef.current = "";
     const recognition = new SR();
     recognition.lang = voiceLang === "ko" ? "ko-KR" : "zh-CN";
-    recognition.interimResults = false;
+    recognition.interimResults = true;
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
     voiceRecognitionRef.current = recognition;
     setIsVoiceTranslateListening(true);
+    setVoiceMicPhase("listening");
     recognition.start();
 
-    recognition.onresult = (event: { results: Array<Array<{ transcript: string }>> }) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      setVoiceResult((prev) => ({ ...prev, original: transcript }));
-      setIsVoiceTranslateListening(false);
-      voiceRecognitionRef.current = null;
-      void (async () => {
-        try {
-          const targetLang = voiceLang === "ko" ? "중국어" : "한국어";
-          const res = await fetch("/api/translate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: transcript, targetLang }),
-          });
-          const data = (await res.json()) as { translation?: string };
-          const translated = data.translation ?? "";
-          setVoiceResult({ original: transcript, translated });
-          const utterance = new SpeechSynthesisUtterance(translated);
-          utterance.lang = voiceLang === "ko" ? "zh-CN" : "ko-KR";
-          utterance.rate = 0.9;
-          window.speechSynthesis.speak(utterance);
-        } catch {
-          setVoiceResult((prev) => ({ ...prev, translated: "번역 실패" }));
-        }
-      })();
+    recognition.onresult = (event: {
+      results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }>;
+    }) => {
+      let allFinal = "";
+      let interim = "";
+      for (let i = 0; i < event.results.length; i++) {
+        const r = event.results[i];
+        const t = r[0]?.transcript ?? "";
+        if (r.isFinal) allFinal += t;
+        else interim += t;
+      }
+      const combined = (allFinal + interim).trim();
+      voiceCombinedRef.current = combined;
+      setVoiceResult({
+        original: combined || voiceCombinedRef.current,
+        translated: "",
+        isInterim: interim.length > 0 && !allFinal,
+      });
     };
     recognition.onerror = () => {
       setIsVoiceTranslateListening(false);
       voiceRecognitionRef.current = null;
+      setVoiceMicPhase("idle");
     };
     recognition.onend = () => {
       setIsVoiceTranslateListening(false);
       voiceRecognitionRef.current = null;
+      if (voicePendingStopRef.current) {
+        voicePendingStopRef.current = false;
+        void translateVoiceText(voiceCombinedRef.current);
+        return;
+      }
+      const t = voiceCombinedRef.current.trim();
+      if (t) void translateVoiceText(t);
+      else setVoiceMicPhase("idle");
     };
   };
 
@@ -578,8 +709,10 @@ export function ChatPanel() {
     if (!trimmed) return;
     if (!requireLogin()) return;
 
+    const master = isMaster;
+    const freeLimit = getFreeAiLimit();
     const todayCount = syncDailyAiDateAndCount();
-    if (todayCount >= 5) {
+    if (!master && todayCount >= freeLimit) {
       addChatMessage({
         role: "ai",
         text:
@@ -589,11 +722,11 @@ export function ChatPanel() {
       return;
     }
 
-    if (user && user.tokens <= 0) {
+    if (!master && user && user.tokens <= 0) {
       addChatMessage({ role: "ai", text: t.noTokens });
       return;
     }
-    if (!canAskQuestion()) {
+    if (!master && !canAskQuestion()) {
       addChatMessage({ role: "ai", text: t.dailyLimitReached });
       return;
     }
@@ -622,6 +755,7 @@ export function ChatPanel() {
           messages: messagesForApi,
           userId: currentUserId ?? 1,
           userLocation: useStore.getState().userLocation,
+          cacheMaxAgeDays: getCacheMaxAgeDays(),
           localShops:
             typeof window !== "undefined"
               ? ((JSON.parse(
@@ -694,36 +828,40 @@ export function ChatPanel() {
                 }
               })();
             }
-            bumpDailyAiCount();
+            if (!master) {
+              bumpDailyAiCount();
+            }
             setQuotaVersion((v) => v + 1);
             incrementQuestion();
             incrementQuestionCount();
-            void (async () => {
-              try {
-                const r = await fetch("/api/tokens", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    userId: currentUserId ?? 1,
-                    amount: 1,
-                    type: "spend",
-                    reason: "AI질문",
-                  }),
-                });
-                const d = (await r.json()) as {
-                  success?: boolean;
-                  tokens?: number;
-                };
-                if (d.success && typeof d.tokens === "number") {
-                  const u = useStore.getState().user;
-                  if (u) setUser({ ...u, tokens: d.tokens });
-                } else {
+            if (!master) {
+              void (async () => {
+                try {
+                  const r = await fetch("/api/tokens", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      userId: currentUserId ?? 1,
+                      amount: 1,
+                      type: "spend",
+                      reason: "AI질문",
+                    }),
+                  });
+                  const d = (await r.json()) as {
+                    success?: boolean;
+                    tokens?: number;
+                  };
+                  if (d.success && typeof d.tokens === "number") {
+                    const u = useStore.getState().user;
+                    if (u) setUser({ ...u, tokens: d.tokens });
+                  } else {
+                    deductToken();
+                  }
+                } catch {
                   deductToken();
                 }
-              } catch {
-                deductToken();
-              }
-            })();
+              })();
+            }
           } else if (data.type === "error" && typeof data.content === "string") {
             updateLastAiMessage(data.content);
           }
@@ -994,6 +1132,22 @@ export function ChatPanel() {
                           </button>
                         </div>
                         ) : null}
+                        {!isFreeQuotaCta &&
+                          msg.text.trim() &&
+                          !(i === chatMessages.length - 1 && isStreaming) && (
+                            <button
+                              type="button"
+                              onClick={() => void reportInaccurate()}
+                              style={{
+                                fontSize: 11,
+                                color: "rgba(255,255,255,0.3)",
+                                padding: "4px 8px",
+                                marginTop: 4,
+                              }}
+                            >
+                              ⚠️ 정보가 틀려요
+                            </button>
+                          )}
                         {reasonPickerFor === i && !isFreeQuotaCta && (
                           <div className="mt-1 flex flex-wrap gap-1.5">
                             {(lang === "zh" ? feedbackReasonsZh : feedbackReasonsKo).map(
@@ -1202,7 +1356,11 @@ export function ChatPanel() {
                           <img
                             src={msg.image}
                             alt=""
-                            className="max-w-full max-h-48 rounded-lg object-contain"
+                            className="object-contain"
+                            style={{
+                              maxWidth: 200,
+                              borderRadius: 12,
+                            }}
                           />
                         ) : null}
                         <span className="whitespace-pre-wrap break-words">{msg.text}</span>
@@ -1275,20 +1433,26 @@ export function ChatPanel() {
 
             <p
               className={`shrink-0 px-4 pt-2 text-right text-[13px] ${
-                freeAiRemaining <= 0
+                !isMaster && freeAiRemaining <= 0
                   ? "text-red-400"
-                  : freeAiRemaining <= 3
+                  : !isMaster && freeAiRemaining <= 3
                     ? "text-[#feca57]"
                     : "text-white/45"
               }`}
             >
-              {freeAiRemaining <= 0
-                ? lang === "zh"
-                  ? "免费提问次数已用完"
-                  : "무료 질문을 모두 사용했어요"
-                : lang === "zh"
-                  ? `今日剩余免费提问: ${freeAiRemaining}/5`
-                  : `오늘 남은 무료 질문: ${freeAiRemaining}/5`}
+              {isMaster ? (
+                <span style={{ color: "#a78bfa" }}>⚡ 관리자 무제한</span>
+              ) : freeAiRemaining <= 0 ? (
+                lang === "zh" ? (
+                  "免费提问次数已用完"
+                ) : (
+                  "무료 질문을 모두 사용했어요"
+                )
+              ) : lang === "zh" ? (
+                `今日剩余免费提问: ${freeAiRemaining}/${getFreeAiLimit()}`
+              ) : (
+                `오늘 남은 무료 질문: ${freeAiRemaining}/${getFreeAiLimit()}`
+              )}
             </p>
             {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
             <div
@@ -1312,7 +1476,6 @@ export function ChatPanel() {
                   ref={cameraInputRef}
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
@@ -1373,8 +1536,10 @@ export function ChatPanel() {
                       } catch {
                         /* ignore */
                       }
+                      window.speechSynthesis.cancel();
                       setVoiceTranslateMode(false);
                       setIsVoiceTranslateListening(false);
+                      setVoiceMicPhase("idle");
                     }}
                     className="text-white/80 text-lg px-2"
                     aria-label="닫기"
@@ -1384,12 +1549,61 @@ export function ChatPanel() {
                   <span className="font-semibold text-white text-sm">🎙️ 음성번역</span>
                   <div className="w-6" />
                 </div>
+
                 <div
-                  className="flex-1 flex flex-col justify-center px-5 gap-5 min-h-0 overflow-y-auto"
-                  style={{ padding: 20, gap: 20 }}
+                  className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2"
+                  style={{ maxHeight: "38vh" }}
                 >
+                  {voiceHistory.map((item, hi) => (
+                    <div
+                      key={hi}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: item.lang === "ko" ? "flex-start" : "flex-end",
+                        padding: "4px 0",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "rgba(255,255,255,0.4)",
+                          marginBottom: 2,
+                        }}
+                      >
+                        {item.lang === "ko" ? "🇰🇷 한국어" : "🇨🇳 中文"}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          color: "white",
+                          background:
+                            item.lang === "ko"
+                              ? "rgba(108,92,231,0.2)"
+                              : "rgba(255,255,255,0.1)",
+                          padding: "8px 12px",
+                          borderRadius: 12,
+                          maxWidth: "85%",
+                        }}
+                      >
+                        {item.original}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          color: "#a78bfa",
+                          padding: "4px 12px",
+                        }}
+                      >
+                        → {item.translated}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="shrink-0 px-5 pb-2 space-y-3">
                   <div
-                    className="rounded-2xl p-5 min-h-[5rem]"
+                    className="rounded-2xl p-4 min-h-[4.5rem]"
                     style={{ background: "rgba(255,255,255,0.05)" }}
                   >
                     <div
@@ -1398,7 +1612,15 @@ export function ChatPanel() {
                     >
                       {voiceLang === "ko" ? "🇰🇷 한국어" : "🇨🇳 中文"}
                     </div>
-                    <div className="text-lg text-white">
+                    <div
+                      style={{
+                        fontSize: 18,
+                        color: voiceResult.isInterim
+                          ? "rgba(255,255,255,0.4)"
+                          : "white",
+                        fontWeight: voiceResult.isInterim ? 400 : 600,
+                      }}
+                    >
                       {voiceResult.original || "마이크를 누르고 말해보세요"}
                     </div>
                   </div>
@@ -1407,7 +1629,7 @@ export function ChatPanel() {
                     onClick={() =>
                       setVoiceLang((v) => (v === "ko" ? "zh" : "ko"))
                     }
-                    className="self-center rounded-full px-5 py-2 text-sm text-white border"
+                    className="w-full rounded-full px-5 py-2 text-sm text-white border"
                     style={{
                       background: "rgba(108,92,231,0.2)",
                       borderColor: "rgba(108,92,231,0.3)",
@@ -1416,7 +1638,7 @@ export function ChatPanel() {
                     🔄 {voiceLang === "ko" ? "한→中" : "中→한"} 전환
                   </button>
                   <div
-                    className="rounded-2xl p-5 min-h-[5rem] border"
+                    className="rounded-2xl p-4 min-h-[4.5rem] border"
                     style={{
                       background: "rgba(108,92,231,0.1)",
                       borderColor: "rgba(108,92,231,0.2)",
@@ -1428,36 +1650,126 @@ export function ChatPanel() {
                     >
                       {voiceLang === "ko" ? "🇨🇳 中文 번역" : "🇰🇷 한국어 번역"}
                     </div>
-                    <div className="text-lg" style={{ color: "#a78bfa" }}>
-                      {voiceResult.translated || "번역 결과가 여기에 표시돼요"}
+                    <div className="text-lg flex items-center gap-2" style={{ color: "#a78bfa" }}>
+                      {voiceMicPhase === "translating" ? (
+                        <>
+                          <span className="inline-block animate-spin text-white/60">⏳</span>
+                          <span>...</span>
+                        </>
+                      ) : (
+                        voiceResult.translated || "번역 결과가 여기에 표시돼요"
+                      )}
                     </div>
                   </div>
                 </div>
-                <div className="flex justify-center py-8">
-                  <button
-                    type="button"
-                    onClick={() => startVoiceTranslate()}
-                    className="rounded-full flex items-center justify-center border-0"
+
+                <div className="flex flex-col items-center shrink-0 pb-8 pt-2">
+                  <div
                     style={{
-                      width: 80,
-                      height: 80,
-                      background: isVoiceTranslateListening
-                        ? "rgba(239,68,68,0.8)"
-                        : "linear-gradient(135deg, #6c5ce7, #a78bfa)",
-                      boxShadow: isVoiceTranslateListening
-                        ? "0 0 30px rgba(239,68,68,0.5)"
-                        : "0 0 30px rgba(108,92,231,0.3)",
+                      position: "relative",
+                      width: 140,
+                      height: 140,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
                   >
-                    <span className="text-3xl">{isVoiceTranslateListening ? "⏹️" : "🎤"}</span>
-                  </button>
+                    {isVoiceTranslateListening ? (
+                      <>
+                        <div
+                          style={{
+                            position: "absolute",
+                            width: 80,
+                            height: 80,
+                            borderRadius: "50%",
+                            border: "2px solid rgba(239,68,68,0.4)",
+                            animation: "bababang-pulse 1.5s ease-in-out infinite",
+                            animationDelay: "0s",
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            width: 100,
+                            height: 100,
+                            borderRadius: "50%",
+                            border: "2px solid rgba(239,68,68,0.2)",
+                            animation: "bababang-pulse 1.5s ease-in-out infinite",
+                            animationDelay: "0.3s",
+                          }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            width: 120,
+                            height: 120,
+                            borderRadius: "50%",
+                            border: "2px solid rgba(239,68,68,0.1)",
+                            animation: "bababang-pulse 1.5s ease-in-out infinite",
+                            animationDelay: "0.6s",
+                          }}
+                        />
+                      </>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (voiceMicPhase === "translating") return;
+                        void startVoiceTranslate();
+                      }}
+                      className="rounded-full flex items-center justify-center border-0 relative z-10"
+                      style={{
+                        width: 80,
+                        height: 80,
+                        background:
+                          voiceMicPhase === "done"
+                            ? "linear-gradient(135deg, #22c55e, #4ade80)"
+                            : isVoiceTranslateListening
+                              ? "rgba(239,68,68,0.85)"
+                              : voiceMicPhase === "translating"
+                                ? "linear-gradient(135deg, #6c5ce7, #a78bfa)"
+                                : "linear-gradient(135deg, #6c5ce7, #a78bfa)",
+                        boxShadow:
+                          isVoiceTranslateListening
+                            ? "0 0 30px rgba(239,68,68,0.5)"
+                            : "0 0 30px rgba(108,92,231,0.3)",
+                        opacity: voiceMicPhase === "translating" ? 0.7 : 1,
+                      }}
+                    >
+                      <span className="text-3xl">
+                        {voiceMicPhase === "done"
+                          ? "✓"
+                          : isVoiceTranslateListening
+                            ? "⏹️"
+                            : voiceMicPhase === "translating"
+                              ? "⏳"
+                              : "🎤"}
+                      </span>
+                    </button>
+                  </div>
+                  {voiceMicPhase === "done" && voiceResult.translated ? (
+                    <button
+                      type="button"
+                      onClick={() => playVoiceTts(voiceResult.translated)}
+                      className="mt-2 text-xs"
+                      style={{ color: "rgba(255,255,255,0.45)" }}
+                    >
+                      🔊 다시 듣기
+                    </button>
+                  ) : null}
+                  <p
+                    className="text-center mt-2 text-[13px] px-4"
+                    style={{ color: "rgba(255,255,255,0.4)" }}
+                  >
+                    {voiceMicPhase === "listening"
+                      ? "듣고 있어요..."
+                      : voiceMicPhase === "translating"
+                        ? "번역중..."
+                        : voiceMicPhase === "done"
+                          ? "번역 완료!"
+                          : "마이크를 누르고 말해보세요"}
+                  </p>
                 </div>
-                <p
-                  className="text-center pb-8 text-[13px]"
-                  style={{ color: "rgba(255,255,255,0.4)" }}
-                >
-                  {isVoiceTranslateListening ? "듣고 있어요..." : "마이크를 누르고 말해보세요"}
-                </p>
               </div>
             ) : null}
           </motion.aside>

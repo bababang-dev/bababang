@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { RowDataPacket } from "mysql2";
+import pool from "@/lib/db";
 import { shopDict, findAllShops } from "@/lib/shopDict";
 import { findCategories } from "@/lib/categoryDict";
 import {
@@ -642,6 +643,7 @@ export async function POST(request: Request) {
     localShops?: unknown;
     userId?: unknown;
     userLocation?: unknown;
+    cacheMaxAgeDays?: unknown;
   };
   try {
     body = await request.json();
@@ -716,7 +718,9 @@ export async function POST(request: Request) {
         let searchContext = "";
         let usedCache = false;
 
-        const cached = await getCachedSearch(userMessage);
+        const cached = await getCachedSearch(userMessage, {
+          maxAgeDays: body.cacheMaxAgeDays,
+        });
         if (cached) {
           usedCache = true;
           console.log("=== 캐시 사용! API 호출 건너뜀 ===");
@@ -1095,6 +1099,27 @@ export async function POST(request: Request) {
           "=== DB 저장: 가게 " + savedShopIds.length + "개, 리뷰 " + savedReviewIds.length + "개 ==="
         );
 
+        }
+
+        try {
+          const [kbRows] = (await pool.query(
+            "SELECT title, content FROM knowledge_base WHERE is_active = TRUE AND MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE) LIMIT 3",
+            [userMessage]
+          )) as unknown as [RowDataPacket[]];
+          if (Array.isArray(kbRows) && kbRows.length > 0) {
+            searchContext += "\n\n=== BabaBang 지식 베이스 ===\n";
+            for (const kb of kbRows) {
+              searchContext +=
+                "[" +
+                String(kb.title ?? "") +
+                "]\n" +
+                String(kb.content ?? "").slice(0, 1000) +
+                "\n\n";
+            }
+            console.log("=== 지식 베이스 매칭: " + kbRows.length + "개 ===");
+          }
+        } catch (e) {
+          console.log("=== 지식 베이스 검색 실패 ===", e);
         }
 
         const locationContext = "";

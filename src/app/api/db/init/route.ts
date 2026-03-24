@@ -30,6 +30,13 @@ export async function GET() {
     } catch {
       /* 호환 */
     }
+    try {
+      await conn.query(
+        "ALTER TABLE users ADD COLUMN role ENUM('user','admin','master','banned') DEFAULT 'user'"
+      );
+    } catch {
+      /* 이미 있음 */
+    }
 
     // 게시글 테이블
     await conn.query(`
@@ -145,6 +152,11 @@ export async function GET() {
 
     try {
       await conn.query("ALTER TABLE posts ADD COLUMN extra_data JSON DEFAULT NULL");
+    } catch {
+      /* 이미 있음 */
+    }
+    try {
+      await conn.query("ALTER TABLE posts ADD COLUMN report_count INT DEFAULT 0");
     } catch {
       /* 이미 있음 */
     }
@@ -271,6 +283,11 @@ export async function GET() {
         INDEX idx_cached (cached_at)
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
+    try {
+      await conn.query("ALTER TABLE shop_cache ADD COLUMN trust_score INT DEFAULT 50");
+    } catch {
+      /* 이미 있음 */
+    }
 
     // 리뷰 캐시
     await conn.query(`
@@ -291,6 +308,21 @@ export async function GET() {
         INDEX idx_keyword (search_keyword)
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
+    try {
+      await conn.query("ALTER TABLE review_cache ADD COLUMN is_verified BOOLEAN DEFAULT FALSE");
+    } catch {
+      /* 이미 있음 */
+    }
+    try {
+      await conn.query("ALTER TABLE review_cache ADD COLUMN is_reported BOOLEAN DEFAULT FALSE");
+    } catch {
+      /* 이미 있음 */
+    }
+    try {
+      await conn.query("ALTER TABLE review_cache ADD COLUMN trust_score INT DEFAULT 50");
+    } catch {
+      /* 이미 있음 */
+    }
 
     // 검색 캐시
     await conn.query(`
@@ -305,6 +337,21 @@ export async function GET() {
         cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_hash (query_hash),
         INDEX idx_cached (cached_at)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS knowledge_base (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(200) NOT NULL,
+        content LONGTEXT NOT NULL,
+        file_type ENUM('pdf','text','manual') DEFAULT 'manual',
+        category VARCHAR(50),
+        uploaded_by INT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_category (category),
+        FULLTEXT idx_content (content)
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
 
