@@ -12,27 +12,55 @@ import { openDidi } from "@/lib/deeplinks";
 import { trackActivity } from "@/lib/trackActivity";
 import { useModalBodyLock } from "@/lib/useModalBodyLock";
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
 
-/** localStorage 일일 무료 AI 질문 (5회) — 날짜 맞추고 당일 사용 횟수 반환 */
+const FREE_QUOTA_MSG_PREFIX = "BB_UPGRADE_CTA\n";
+
+const FREE_QUOTA_EXCEEDED_KO = `무료 질문 5회를 모두 사용하셨어요!
+
+마지막 질문으로부터 24시간 후에 다시 5회 질문이 가능해요.
+
+✨ 프리미엄으로 업그레이드하면:
+- AI 질문 무제한
+- AI 통역 (사진 번역)
+- 음성 질문
+- 상권 분석 (예정)
+- 입시 상담 (예정)`;
+
+const FREE_QUOTA_EXCEEDED_ZH = `您已用完 5 次免费提问。
+
+自上次提问起满 24 小时后，可再次获得 5 次提问。
+
+✨ 升级高级版可享：
+- AI 提问无限
+- AI 翻译（拍照翻译）
+- 语音提问
+- 商圈分析（即将上线）
+- 升学咨询（即将上线）`;
+
+/** localStorage 무료 AI 질문 5회 — 마지막 주기 첫 질문 시각 기준 24시간 후 리셋 */
 function syncDailyAiDateAndCount(): number {
   if (typeof window === "undefined") return 0;
-  const today = new Date().toISOString().slice(0, 10);
-  const savedDate = localStorage.getItem("bababang-ai-date");
-  if (savedDate !== today) {
-    localStorage.setItem("bababang-ai-date", today);
+  const now = Date.now();
+  let firstTime = parseInt(localStorage.getItem("bababang-ai-first-time") || "0", 10);
+  const count = parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
+  if (count > 0 && firstTime === 0) {
+    firstTime = now;
+    localStorage.setItem("bababang-ai-first-time", String(firstTime));
+  }
+  if (firstTime > 0 && now - firstTime > 24 * 60 * 60 * 1000) {
     localStorage.setItem("bababang-ai-count", "0");
+    localStorage.setItem("bababang-ai-first-time", "0");
     return 0;
   }
-  return parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
+  return count;
 }
 
 function bumpDailyAiCount() {
   if (typeof window === "undefined") return;
-  syncDailyAiDateAndCount();
-  const c = parseInt(localStorage.getItem("bababang-ai-count") || "0", 10);
+  const c = syncDailyAiDateAndCount();
+  if (c === 0) {
+    localStorage.setItem("bababang-ai-first-time", String(Date.now()));
+  }
   localStorage.setItem("bababang-ai-count", String(c + 1));
 }
 
@@ -182,8 +210,6 @@ export function ChatPanel() {
     incrementQuestion,
     deductToken,
     setMembershipOpen,
-    dailyQuestionCount,
-    lastQuestionDate,
     addFeedback,
     incrementQuestionCount,
     openMapActionSheet,
@@ -208,13 +234,16 @@ export function ChatPanel() {
   const t = i18n[lang].chat;
   const tokens = user?.tokens ?? 0;
   const isFree = user?.plan === "free";
-  const remainingFree =
-    isFree
-      ? (lastQuestionDate === todayStr()
-          ? Math.max(0, 3 - dailyQuestionCount)
-          : 3)
-      : null;
   const atDailyLimit = isFree && !canAskQuestion();
+
+  const toastThanksGood =
+    lang === "zh" ? "谢谢！我们会努力回答得更好 🙂" : "감사합니다! 더 좋은 답변 드릴게요 😊";
+  const toastBadPrompt =
+    lang === "zh" ? "抱歉。哪一点不太满意？" : "죄송해요. 어떤 점이 아쉬웠나요?";
+  const toastFeedbackOk =
+    lang === "zh" ? "我们会参考您的意见！" : "의견 반영할게요!";
+  const toastReportThanks =
+    lang === "zh" ? "感谢举报！我们会尽快处理。" : "신고해주셔서 감사합니다! 확인 후 반영할게요.";
 
   useEffect(() => {
     if (chatOpen) setQuotaVersion((v) => v + 1);
@@ -242,7 +271,7 @@ export function ChatPanel() {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 1800);
+    const timer = window.setTimeout(() => setToast(""), 2000);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
@@ -258,7 +287,8 @@ export function ChatPanel() {
       addChatMessage({
         role: "ai",
         text:
-          "오늘 무료 질문 5회를 다 사용했어요! 😊\n\n내일 다시 5회 충전돼요.\n\n더 많이 사용하고 싶으시면 토큰을 사용해주세요!",
+          FREE_QUOTA_MSG_PREFIX +
+          (lang === "zh" ? FREE_QUOTA_EXCEEDED_ZH : FREE_QUOTA_EXCEEDED_KO),
       });
       return;
     }
@@ -418,7 +448,7 @@ export function ChatPanel() {
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 28, stiffness: 300 }}
-            className="chat-container fixed top-0 right-0 bottom-0 border-l border-white/10 bg-[#0a0a0f] shadow-glass-dark"
+            className="chat-container fixed top-0 right-0 bottom-0 flex min-h-0 flex-col border-l border-white/10 bg-[#0a0a0f] shadow-glass-dark"
             style={{
               width: "80%",
               maxWidth: "344px",
@@ -440,11 +470,6 @@ export function ChatPanel() {
                 <p className="font-outfit font-semibold text-white text-sm sm:text-base truncate w-full text-center">
                   {t.aiName}
                 </p>
-                {remainingFree !== null && (
-                  <p className="text-[10px] text-white/50 truncate w-full text-center">
-                    {t.remainingQuota}: {remainingFree}/3
-                  </p>
-                )}
               </div>
               <div className="shrink-0 text-right text-xs text-white/90 min-w-[4.5rem]">
                 <span className="text-white/50">{t.tokensLabel}</span>{" "}
@@ -452,15 +477,40 @@ export function ChatPanel() {
               </div>
             </div>
 
+            {toast ? (
+              <div className="shrink-0 px-3 pt-1">
+                <div
+                  className="w-full text-center text-white"
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    background: "var(--bg-dark-card)",
+                    backdropFilter: "blur(20px)",
+                    WebkitBackdropFilter: "blur(20px)",
+                    border: "1px solid var(--glass-border)",
+                  }}
+                >
+                  {toast}
+                </div>
+              </div>
+            ) : null}
+
             {/* 메시지 영역: AI 왼쪽 하단 각짐, 유저 오른쪽 하단 각짐, 새 메시지 scale */}
             <div
               ref={scrollRef}
-              className="chat-messages p-4 space-y-4 scrollbar-thin"
+              className="chat-messages min-h-0 flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin"
             >
               <AnimatePresence>
                 {chatMessages.map((msg, i) => {
                   const isLastAi =
                     msg.role === "ai" && i === chatMessages.length - 1;
+                  const isFreeQuotaCta =
+                    msg.role === "ai" &&
+                    msg.text.startsWith(FREE_QUOTA_MSG_PREFIX);
+                  const aiDisplayText = isFreeQuotaCta
+                    ? msg.text.slice(FREE_QUOTA_MSG_PREFIX.length)
+                    : msg.text;
                   const isStatusPhase =
                     isLastAi &&
                     isStreaming &&
@@ -490,15 +540,32 @@ export function ChatPanel() {
                           }`}
                         >
                           <AiMessageContent
-                            text={msg.text}
+                            text={aiDisplayText}
                             isStatusPhase={isStatusPhase}
                             onChipTap={(line) => void sendMessage(line)}
                           />
+                          {isFreeQuotaCta ? (
+                            <motion.button
+                              type="button"
+                              onClick={() => setMembershipOpen(true)}
+                              className="mt-3 w-full text-center font-medium text-white"
+                              style={{
+                                padding: 12,
+                                borderRadius: 12,
+                                background:
+                                  "linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%)",
+                              }}
+                              whileTap={{ scale: 0.98 }}
+                            >
+                              {lang === "zh" ? "升级高级版 →" : "프리미엄 업그레이드 →"}
+                            </motion.button>
+                          ) : null}
                           {isLastAi && isStreaming && (
                             <span className="typing-cursor">▊</span>
                           )}
                         </div>
                         {msg.recommendedShops &&
+                          !isFreeQuotaCta &&
                           msg.recommendedShops.length > 0 &&
                           /맛집|장소|추천|가게|식당|카페|주소|업체|칭다오|청도|美食|餐厅|烧烤|火锅|咖啡|데려|안내|소개|찾아|위치|怎么走|怎么去/i.test(
                             msg.text
@@ -507,6 +574,7 @@ export function ChatPanel() {
                               📍 위 장소로 길찾기나 택시가 필요하면 추천 카드를 탭해보세요
                             </p>
                           )}
+                        {!isFreeQuotaCta ? (
                         <div className="mt-1.5 flex items-center gap-2 text-white/50">
                           <button
                             type="button"
@@ -529,7 +597,7 @@ export function ChatPanel() {
                                 aiResponse: aiMsg,
                                 feedback: "good",
                               });
-                              setToast("감사합니다! 더 좋은 답변 드릴게요 😊");
+                              setToast(toastThanksGood);
                             }}
                             className={`p-1 rounded ${
                               feedbackMap[i] === "good" ? "text-accent" : ""
@@ -542,7 +610,7 @@ export function ChatPanel() {
                             onClick={() => {
                               setFeedbackMap((s) => ({ ...s, [i]: "bad" }));
                               setReasonPickerFor(i);
-                              setToast("죄송해요. 어떤 점이 아쉬웠나요?");
+                              setToast(toastBadPrompt);
                             }}
                             className={`p-1 rounded ${
                               feedbackMap[i] === "bad" ? "text-accent" : ""
@@ -551,7 +619,8 @@ export function ChatPanel() {
                             <ThumbsDown className="w-4 h-4" />
                           </button>
                         </div>
-                        {reasonPickerFor === i && (
+                        ) : null}
+                        {reasonPickerFor === i && !isFreeQuotaCta && (
                           <div className="mt-1 flex flex-wrap gap-1.5">
                             {(lang === "zh" ? feedbackReasonsZh : feedbackReasonsKo).map(
                               (reason) => (
@@ -578,7 +647,7 @@ export function ChatPanel() {
                                       feedbackReason: reason,
                                     });
                                     setReasonPickerFor(null);
-                                    setToast("의견 반영할게요!");
+                                    setToast(toastFeedbackOk);
                                   }}
                                   className="px-2 py-1 rounded-full text-[10px] bg-white/10 text-white/80"
                                 >
@@ -588,7 +657,9 @@ export function ChatPanel() {
                             )}
                           </div>
                         )}
-                        {msg.recommendedShops && msg.recommendedShops.length > 0 && (
+                        {msg.recommendedShops &&
+                          !isFreeQuotaCta &&
+                          msg.recommendedShops.length > 0 && (
                           <motion.div
                             initial={{ opacity: 0, y: 8 }}
                             animate={{ opacity: 1, y: 0 }}
@@ -800,9 +871,13 @@ export function ChatPanel() {
                     : "text-white/45"
               }`}
             >
-              {lang === "zh"
-                ? `今日剩余免费提问: ${freeAiRemaining}/5`
-                : `오늘 남은 무료 질문: ${freeAiRemaining}/5`}
+              {freeAiRemaining <= 0
+                ? lang === "zh"
+                  ? "免费提问次数已用完"
+                  : "무료 질문을 모두 사용했어요"
+                : lang === "zh"
+                  ? `今日剩余免费提问: ${freeAiRemaining}/5`
+                  : `오늘 남은 무료 질문: ${freeAiRemaining}/5`}
             </p>
             {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
             <div
@@ -834,16 +909,6 @@ export function ChatPanel() {
               </motion.button>
             </div>
           </motion.aside>
-          {toast && (
-            <div
-              className="fixed left-1/2 -translate-x-1/2 z-[80] bg-black/80 text-white text-xs px-3 py-2 rounded-full max-w-[90%] text-center"
-              style={{
-                bottom: "max(5.5rem, calc(env(safe-area-inset-bottom, 0px) + 3rem))",
-              }}
-            >
-              {toast}
-            </div>
-          )}
           <ReportModal
             open={!!reportShop}
             onClose={() => setReportShop(null)}
@@ -852,9 +917,7 @@ export function ChatPanel() {
                 ? `${reportShop.koreanName || reportShop.name}${reportShop.address ? ` · ${reportShop.address}` : ""}`
                 : ""
             }
-            onSubmitted={() =>
-              setToast("신고해주셔서 감사합니다! 확인 후 반영할게요.")
-            }
+            onSubmitted={() => setToast(toastReportThanks)}
           />
         </>
       )}
