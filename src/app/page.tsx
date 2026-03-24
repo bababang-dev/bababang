@@ -20,7 +20,6 @@ import { WritePostModal } from "@/components/modals/WritePostModal";
 import { WritePromotionModal } from "@/components/modals/WritePromotionModal";
 import { MapActionSheet } from "@/components/modals/MapActionSheet";
 import { LoginModal } from "@/components/modals/LoginModal";
-import { getUserLocation } from "@/lib/geolocation";
 import type { TabKey } from "@/types";
 
 const pages: Record<TabKey, React.ReactNode> = {
@@ -43,7 +42,6 @@ export default function MainPage() {
   const writePostOpen = useStore((s) => s.writePostOpen);
   const promotionModalOpen = useStore((s) => s.promotionModalOpen);
   const setLang = useStore((s) => s.setLang);
-  const setUserLocation = useStore((s) => s.setUserLocation);
   const [locationToast, setLocationToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -145,32 +143,30 @@ export default function MainPage() {
   }, [activeTab, setRecommendSubTab]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const loc = await getUserLocation();
-      if (cancelled) return;
-      if (loc) {
-        setUserLocation(loc);
-        return;
-      }
-      if (typeof navigator === "undefined" || !navigator.geolocation) return;
-      try {
-        const perm = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+    if (typeof window === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        console.log(
+          "=== 위치 감지: " + pos.coords.latitude + ", " + pos.coords.longitude + " ==="
+        );
+        useStore.getState().setUserLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      },
+      (err) => {
+        console.log("=== 위치 감지 실패: " + err.message + " ===");
         if (
-          perm.state === "denied" &&
+          err.code === err.PERMISSION_DENIED &&
           !sessionStorage.getItem("bababang-loc-denied-toast")
         ) {
           setLocationToast("위치 권한이 필요해요. 설정에서 허용해주세요");
           sessionStorage.setItem("bababang-loc-denied-toast", "1");
         }
-      } catch {
-        /* Permissions API 미지원 시 토스트 생략 */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [setUserLocation]);
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  }, []);
 
   useEffect(() => {
     if (!locationToast) return;

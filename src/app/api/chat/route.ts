@@ -157,6 +157,66 @@ async function amapSearch(
   }
 }
 
+/** 高德 주변 검색 (반경 m, location = 경도,위도) */
+async function amapAround(
+  lng: number,
+  lat: number,
+  keywords: string,
+  radiusM = 5000
+): Promise<
+  Array<{
+    name: string;
+    address: string;
+    tel: string;
+    rating: string;
+    cost: string;
+    openTime: string;
+    photos: string[];
+    type: string;
+    location: string;
+  }>
+> {
+  try {
+    const key = process.env.AMAP_API_KEY;
+    if (!key) return [];
+    const loc = `${lng},${lat}`;
+    const url = `https://restapi.amap.com/v3/place/around?key=${key}&location=${encodeURIComponent(loc)}&keywords=${encodeURIComponent(keywords)}&radius=${radiusM}&output=json&offset=30&extensions=all`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const data = (await res.json()) as {
+      pois?: Array<{
+        name?: string;
+        address?: string;
+        tel?: string;
+        rating?: string;
+        location?: string;
+        photos?: Array<{ url?: string } | string>;
+        biz_ext?: { rating?: string; cost?: string; open_time?: string; meal_ordering?: string };
+        type?: string;
+      }>;
+    };
+    console.log(
+      "=== 高德 around [" + keywords + "] r=" + radiusM + "m: " + (data.pois?.length || 0) + "개 ==="
+    );
+    return (data.pois || []).map((poi) => {
+      const photos =
+        poi.photos?.slice(0, 3).map((p) => (typeof p === "string" ? p : p?.url ?? "")).filter(Boolean) ?? [];
+      return {
+        name: poi.name ?? "",
+        address: poi.address ?? "",
+        tel: poi.tel ?? "",
+        rating: poi.biz_ext?.rating || poi.rating || "",
+        cost: poi.biz_ext?.cost || "",
+        openTime: poi.biz_ext?.open_time || "",
+        photos,
+        type: poi.type ?? "",
+        location: poi.location ?? "",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 // ═══ SerpAPI 百度 검색 (大众点评 + 小红书 리뷰) ═══
 async function searchBaidu(query: string): Promise<string[]> {
   const apiKey = process.env.SERPAPI_KEY;
@@ -557,7 +617,12 @@ async function fetchBababangDbContext(userMessage: string): Promise<string[]> {
 }
 
 export async function POST(request: Request) {
-  let body: { messages?: unknown; localShops?: unknown; userId?: unknown };
+  let body: {
+    messages?: unknown;
+    localShops?: unknown;
+    userId?: unknown;
+    userLocation?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
@@ -588,6 +653,21 @@ export async function POST(request: Request) {
       };
       try {
         send({ type: "status", content: "정보를 수집하고 있어요..." });
+
+        const rawLoc = body.userLocation as { lat?: unknown; lng?: unknown } | undefined;
+        const userLocation =
+          rawLoc &&
+          typeof rawLoc.lat === "number" &&
+          typeof rawLoc.lng === "number" &&
+          Number.isFinite(rawLoc.lat) &&
+          Number.isFinite(rawLoc.lng)
+            ? { lat: rawLoc.lat, lng: rawLoc.lng }
+            : null;
+        if (userLocation) {
+          console.log(
+            "=== 채팅 API userLocation: " + userLocation.lat + ", " + userLocation.lng + " ==="
+          );
+        }
 
         const userMessage = messages[messages.length - 1]?.content || "";
         const searchQuery = "칭다오 " + userMessage.slice(0, 30).trim();
@@ -686,7 +766,15 @@ export async function POST(request: Request) {
           console.log("=== shopDict → 高德 추가 검색: " + shopAmapResults.length + "개 ===");
         }
 
-        const allAmapPois = (categoryAmapResults as Array<Array<AmapPoi>>).flat();
+        let allAmapPois = (categoryAmapResults as Array<Array<AmapPoi>>).flat();
+        if (userLocation) {
+          const aroundBatches = await Promise.all(
+            amapKeywords.map((kw) =>
+              amapAround(userLocation.lng, userLocation.lat, kw, 5000).catch(() => [] as AmapPoi[])
+            )
+          );
+          allAmapPois = [...allAmapPois, ...aroundBatches.flat()];
+        }
         const uniquePois = allAmapPois.filter(
           (poi, idx, arr) => arr.findIndex((p) => p.name === poi.name) === idx
         );
@@ -743,7 +831,8 @@ export async function POST(request: Request) {
         let searchContext = analysisReport.slice(0, 2000);
 
         const shopListText = shopDict
-          .map((s) => (s.zh ? `${s.zh} = ${s.koreanNames.join(",")}` : s.koreanNames.join(",")))
+          .filter((s) => Boolean(s.zh?.trim()))
+          .map((s) => `${s.zh} = ${s.koreanNames.join(",")}`)
           .join("\n");
 
         searchContext +=
@@ -1008,7 +1097,13 @@ ${searchContext}`
             recommendedShopNames = extracted
               .split(/[,，、]/)
               .map((n: string) => n.trim())
-              .filter((n: string) => n.length >= 2);
+              .filter((n: string) => n.length >= 2)
+              .filter((n: string) => {
+                const hasHangul = /[가-힣]/.test(n);
+                const hasCJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufadf]/.test(n);
+                if (hasHangul && !hasCJK) return false;
+                return true;
+              });
           }
         } catch {
           console.log("=== 추천 가게 추출 실패 ===");
@@ -1032,7 +1127,8 @@ ${searchContext}`
           }
 
           const dictMatch = shopDict.find((s) => {
-            const dZh = (s.zh || "").split("(")[0].split("（")[0].trim();
+            if (!s.zh?.trim()) return false;
+            const dZh = s.zh.split("(")[0].split("（")[0].trim();
             return dZh === shortName || dZh.includes(shortName) || shortName.includes(dZh);
           });
           const koreanName = dictMatch ? dictMatch.koreanNames[0] : "";

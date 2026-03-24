@@ -386,6 +386,7 @@ export function findAllShops(text: string): ShopEntry[] {
   const lower = text.toLowerCase();
   const found: ShopEntry[] = [];
   for (const shop of shopDict) {
+    if (!shop.zh?.trim()) continue;
     for (const name of shop.koreanNames) {
       if (lower.includes(name.toLowerCase())) {
         found.push(shop);

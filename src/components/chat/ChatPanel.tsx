@@ -293,6 +293,7 @@ export function ChatPanel() {
         body: JSON.stringify({
           messages: messagesForApi,
           userId: currentUserId ?? 1,
+          userLocation: useStore.getState().userLocation,
           localShops:
             typeof window !== "undefined"
               ? ((JSON.parse(
@@ -406,7 +407,7 @@ export function ChatPanel() {
             exit={{ opacity: 0 }}
             className="fixed inset-0"
             style={{
-              zIndex: 10000,
+              zIndex: 998,
               background: "rgba(0,0,0,0.5)",
             }}
             onClick={() => setChatOpen(false)}
@@ -419,9 +420,9 @@ export function ChatPanel() {
             transition={{ type: "spring", damping: 28, stiffness: 300 }}
             className="chat-container fixed top-0 right-0 bottom-0 border-l border-white/10 bg-[#0a0a0f] shadow-glass-dark"
             style={{
-              width: "95%",
-              maxWidth: "408px",
-              zIndex: 10001,
+              width: "80%",
+              maxWidth: "344px",
+              zIndex: 999,
             }}
             onClick={(e) => e.stopPropagation()}
           >
