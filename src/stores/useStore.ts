@@ -25,6 +25,9 @@ interface AppState {
   chatOpen: boolean;
   setChatOpen: (open: boolean) => void;
   toggleChat: () => void;
+  /** 홈 등에서 채팅 열 때 자동 전송할 질문 (전송 후 ChatPanel에서 비움) */
+  chatPendingPrompt: string | null;
+  setChatPendingPrompt: (text: string | null) => void;
   /** 모바일 키보드 등 (하단 탭·FAB 숨김용) */
   isKeyboardOpen: boolean;
   setKeyboardOpen: (open: boolean) => void;
@@ -176,6 +179,8 @@ export const useStore = create<AppState>((set, get) => ({
   chatOpen: false,
   setChatOpen: (open) => set({ chatOpen: open }),
   toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
+  chatPendingPrompt: null,
+  setChatPendingPrompt: (text) => set({ chatPendingPrompt: text }),
   isKeyboardOpen: false,
   setKeyboardOpen: (open) => set({ isKeyboardOpen: open }),
   chatMessages: [],

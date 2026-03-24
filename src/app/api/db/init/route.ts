@@ -247,6 +247,67 @@ export async function GET() {
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
 
+    // 가게 정보 캐시
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS shop_cache (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name_zh VARCHAR(200) NOT NULL,
+        name_ko VARCHAR(200),
+        address VARCHAR(300),
+        phone VARCHAR(50),
+        rating DECIMAL(2,1),
+        cost VARCHAR(50),
+        open_time VARCHAR(100),
+        category VARCHAR(50),
+        district VARCHAR(50),
+        lat VARCHAR(20),
+        lng VARCHAR(20),
+        photo_urls TEXT,
+        source ENUM('amap','baidu','naver','serpapi','user') NOT NULL,
+        search_keyword VARCHAR(200),
+        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_name (name_zh),
+        INDEX idx_keyword (search_keyword),
+        INDEX idx_cached (cached_at)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    // 리뷰 캐시
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS review_cache (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        shop_name VARCHAR(200) NOT NULL,
+        review_text TEXT NOT NULL,
+        reviewer VARCHAR(100),
+        rating DECIMAL(2,1),
+        review_date VARCHAR(50),
+        source ENUM('dianping','xiaohongshu','naver_blog','naver_cafe','zhihu','weibo','meituan','user') NOT NULL,
+        source_url TEXT,
+        language ENUM('ko','zh','en') DEFAULT 'zh',
+        search_keyword VARCHAR(200),
+        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_shop (shop_name),
+        INDEX idx_source (source),
+        INDEX idx_keyword (search_keyword)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    // 검색 캐시
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS search_cache (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        query_hash VARCHAR(64) NOT NULL UNIQUE,
+        query_text VARCHAR(500) NOT NULL,
+        result_summary TEXT,
+        shop_ids TEXT,
+        review_ids TEXT,
+        total_sources INT DEFAULT 0,
+        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_hash (query_hash),
+        INDEX idx_cached (cached_at)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
     // 테스트 유저 생성
     await conn.query(`
       INSERT IGNORE INTO users (id, nickname, email, avatar, plan, tokens)

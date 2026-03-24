@@ -10,13 +10,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
     const sort = searchParams.get("sort");
+    const limitRaw = searchParams.get("limit");
+    const limitNum = Number.parseInt(String(limitRaw ?? "50"), 10);
+    const limit = Number.isFinite(limitNum) ? Math.min(Math.max(limitNum, 1), 100) : 50;
 
     let query = `
       SELECT p.*, u.nickname as author, u.avatar 
       FROM posts p 
       LEFT JOIN users u ON p.user_id = u.id 
     `;
-    const params: string[] = [];
+    const params: (string | number)[] = [];
 
     if (category && category !== "전체" && category !== "全部") {
       query += " WHERE p.category = ?";
@@ -25,10 +28,11 @@ export async function GET(request: Request) {
 
     if (sort === "popular") {
       query +=
-        " ORDER BY (COALESCE(p.likes,0) + COALESCE(p.views,0)) DESC, p.created_at DESC LIMIT 50";
+        " ORDER BY (COALESCE(p.likes,0) + COALESCE(p.views,0)) DESC, p.created_at DESC LIMIT ?";
     } else {
-      query += " ORDER BY p.created_at DESC LIMIT 50";
+      query += " ORDER BY p.created_at DESC LIMIT ?";
     }
+    params.push(limit);
 
     const [rows] = await pool.query(query, params);
     return NextResponse.json({ posts: rows });

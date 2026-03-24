@@ -5,7 +5,7 @@ import { Star, Send } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useStore } from "@/stores/useStore";
 import { i18n } from "@/lib/i18n";
-import { mockPosts, mockPlaces } from "@/lib/mockData";
+import { mockPlaces } from "@/lib/mockData";
 import { Header } from "@/components/layout/Header";
 import { trackActivity } from "@/lib/trackActivity";
 import { PostCard } from "@/components/cards/PostCard";
@@ -29,7 +29,7 @@ function mapApiPostRow(p: Record<string, unknown>): Post {
     content: String(p.content ?? ""),
     contentZh: String(p.content ?? ""),
     author: String((p as { nickname?: string }).nickname || "익명"),
-    avatar: "👤",
+    avatar: String((p as { avatar?: string }).avatar || "👤"),
     time: "방금 전",
     timeZh: "刚刚",
     views: Number(p.views ?? 0),
@@ -147,11 +147,18 @@ function HotPlaceCard({
 }
 
 export function HomePage() {
-  const { lang, setChatOpen, setActiveTab, setDetailView, currentUserId, requireLogin } =
-    useStore();
+  const {
+    lang,
+    setChatOpen,
+    setChatPendingPrompt,
+    setActiveTab,
+    setDetailView,
+    currentUserId,
+    requireLogin,
+  } = useStore();
   const t = i18n[lang];
   const hotPlaces = mockPlaces.slice(0, 4);
-  const popularPosts = mockPosts.slice(0, 3);
+  const [popularPosts, setPopularPosts] = useState<Post[]>([]);
   const [weather, setWeather] = useState<{
     temp: string;
     feelsLike: string;
@@ -169,6 +176,19 @@ export function HomePage() {
 
   const DEFAULT_CNY_KRW = 190;
   const DEFAULT_USD_KRW = 1386;
+
+  useEffect(() => {
+    fetch("/api/posts?sort=popular&limit=5")
+      .then((r) => r.json())
+      .then((data: { posts?: unknown[] }) => {
+        if (data.posts && Array.isArray(data.posts)) {
+          setPopularPosts(
+            data.posts.map((p) => mapApiPostRow(p as Record<string, unknown>))
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -257,6 +277,15 @@ export function HomePage() {
       ? personalization.topCategories
       : []
   );
+
+  const exampleQuestions = [
+    { emoji: "🍜", text: "청양에서 맛있는 양꼬치집 추천해줘" },
+    { emoji: "🏥", text: "한국어 되는 병원 알려줘" },
+    { emoji: "✈️", text: "비자 연장 준비물이 뭐야?" },
+    { emoji: "🏠", text: "시난구에서 월세 3000위안 집 있어?" },
+    { emoji: "📱", text: "중국 은행 계좌 어떻게 만들어?" },
+    { emoji: "🎓", text: "칭다오 한국 학교 정보 알려줘" },
+  ];
 
   return (
     <div className="min-h-full bg-[#0a0a0f] text-white pb-24 scrollbar-thin">
@@ -683,6 +712,44 @@ export function HomePage() {
           <div className="space-y-3">
             {popularPosts.map((post) => (
               <PostCard key={post.id} post={post} dark />
+            ))}
+          </div>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.28 }}
+          className="mt-8"
+        >
+          <h3 className="font-outfit font-semibold text-sm text-white/80 mb-3">
+            이런 질문도 가능해요!
+          </h3>
+          <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar -mx-4 px-4">
+            {exampleQuestions.map((item) => (
+              <button
+                key={item.text}
+                type="button"
+                onClick={() => {
+                  if (!requireLogin()) return;
+                  setChatOpen(true);
+                  window.setTimeout(() => {
+                    setChatPendingPrompt(item.text);
+                  }, 300);
+                }}
+                className="glass-dark flex flex-shrink-0 max-w-[280px] items-center gap-2 rounded-2xl border border-white/10 px-3.5 py-2.5 text-left active:scale-[0.98] transition-transform"
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  borderColor: "rgba(255,255,255,0.1)",
+                }}
+              >
+                <span className="text-lg leading-none shrink-0" aria-hidden>
+                  {item.emoji}
+                </span>
+                <span className="text-xs text-white/85 leading-snug min-w-0">
+                  {item.text}
+                </span>
+              </button>
             ))}
           </div>
         </motion.section>

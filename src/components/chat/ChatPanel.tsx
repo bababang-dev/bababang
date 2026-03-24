@@ -270,6 +270,10 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamReplyStarted, setStreamReplyStarted] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const chatPendingPrompt = useStore((s) => s.chatPendingPrompt);
+  const setChatPendingPrompt = useStore((s) => s.setChatPendingPrompt);
+  const sendMessageRef = useRef<(text: string) => Promise<void>>(async () => {});
   const [toast, setToast] = useState("");
   const [feedbackMap, setFeedbackMap] = useState<Record<number, "good" | "bad">>(
     {}
@@ -351,6 +355,7 @@ export function ChatPanel() {
       return;
     }
     touchChatActivity();
+    setStatusMessage("");
     lastAiUserMessageRef.current = trimmed;
     void trackActivity("ask_ai", undefined, trimmed);
     addChatMessage({ role: "user", text: trimmed });
@@ -413,11 +418,12 @@ export function ChatPanel() {
             recommendedShops?: ChatMessage["recommendedShops"];
           };
           if (data.type === "status" && typeof data.content === "string") {
-            updateLastAiMessage(data.content);
+            setStatusMessage(data.content);
           } else if (data.type === "content" && typeof data.content === "string") {
             if (!replyStarted) {
               replyStarted = true;
               setStreamReplyStarted(true);
+              setStatusMessage("");
             }
             fullText += data.content;
             updateLastAiMessage(fullText);
@@ -505,8 +511,18 @@ export function ChatPanel() {
     } finally {
       setIsStreaming(false);
       setStreamReplyStarted(false);
+      setStatusMessage("");
     }
   };
+
+  sendMessageRef.current = sendMessage;
+
+  useEffect(() => {
+    if (!chatOpen || !chatPendingPrompt) return;
+    const t = chatPendingPrompt;
+    setChatPendingPrompt(null);
+    void sendMessageRef.current(t);
+  }, [chatOpen, chatPendingPrompt, setChatPendingPrompt]);
 
   return (
     <AnimatePresence>
@@ -588,6 +604,18 @@ export function ChatPanel() {
               </div>
             ) : null}
 
+            {statusMessage && isStreaming && !streamReplyStarted ? (
+              <div
+                className="shrink-0 px-4 py-2 flex items-center gap-2 text-left border-b border-white/5"
+                style={{ fontSize: 13, color: "rgba(255,255,255,0.5)" }}
+              >
+                <span className="inline-block animate-spin mr-2 select-none" aria-hidden>
+                  ⏳
+                </span>
+                <span className="min-w-0 flex-1 leading-snug">{statusMessage}</span>
+              </div>
+            ) : null}
+
             {/* 메시지 영역: AI 왼쪽 하단 각짐, 유저 오른쪽 하단 각짐, 새 메시지 scale */}
             <div
               ref={scrollRef}
@@ -597,19 +625,21 @@ export function ChatPanel() {
                 {chatMessages.map((msg, i) => {
                   const isLastAi =
                     msg.role === "ai" && i === chatMessages.length - 1;
+                  if (
+                    isLastAi &&
+                    isStreaming &&
+                    !streamReplyStarted &&
+                    msg.text.length === 0
+                  ) {
+                    return null;
+                  }
                   const isFreeQuotaCta =
                     msg.role === "ai" &&
                     msg.text.startsWith(FREE_QUOTA_MSG_PREFIX);
                   const aiDisplayText = isFreeQuotaCta
                     ? msg.text.slice(FREE_QUOTA_MSG_PREFIX.length)
                     : msg.text;
-                  const isStatusPhase =
-                    isLastAi &&
-                    isStreaming &&
-                    !streamReplyStarted &&
-                    (msg.text.length === 0 ||
-                      msg.text.includes("정보를 수집") ||
-                      msg.text.includes("분석 완료"));
+                  const isStatusPhase = false;
                   return (
                   <motion.div
                     key={`msg-${i}`}
