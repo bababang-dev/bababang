@@ -1191,7 +1191,7 @@ ${searchContext}`
         );
 
         const isAskingQuestion =
-          fullContent.includes("?") &&
+          /[\?？]/.test(fullContent) &&
           (fullContent.includes("어떤") ||
             fullContent.includes("찾으세요") ||
             fullContent.includes("어느") ||

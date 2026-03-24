@@ -42,7 +42,12 @@ export default function MainPage() {
   const writePostOpen = useStore((s) => s.writePostOpen);
   const promotionModalOpen = useStore((s) => s.promotionModalOpen);
   const setLang = useStore((s) => s.setLang);
+  const isLoggedIn = useStore((s) => s.isLoggedIn);
+  const currentUserId = useStore((s) => s.currentUserId);
+  const setUser = useStore((s) => s.setUser);
+  const lang = useStore((s) => s.lang);
   const [locationToast, setLocationToast] = useState<string | null>(null);
+  const [attendanceToast, setAttendanceToast] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("bababang-user");
@@ -174,6 +179,52 @@ export default function MainPage() {
     return () => window.clearTimeout(t);
   }, [locationToast]);
 
+  useEffect(() => {
+    if (!isLoggedIn || currentUserId == null || typeof window === "undefined") return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = "bababang-login-bonus-date";
+    if (localStorage.getItem(key) === today) return;
+
+    let cancelled = false;
+    void fetch("/api/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: currentUserId,
+        amount: 1,
+        type: "earn",
+        reason: "로그인",
+      }),
+    })
+      .then((r) => r.json())
+      .then(
+        (d: { success?: boolean; limited?: boolean; tokens?: number }) => {
+          if (cancelled) return;
+          if (d.limited) return;
+          if (d.success) {
+            localStorage.setItem(key, today);
+            setAttendanceToast(
+              lang === "zh" ? "签到完成！获得 1 代币" : "출석 완료! 토큰 1개 받았어요"
+            );
+            if (typeof d.tokens === "number") {
+              const u = useStore.getState().user;
+              if (u) setUser({ ...u, tokens: d.tokens });
+            }
+          }
+        }
+      )
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, currentUserId, lang, setUser]);
+
+  useEffect(() => {
+    if (!attendanceToast) return;
+    const t = window.setTimeout(() => setAttendanceToast(null), 3500);
+    return () => window.clearTimeout(t);
+  }, [attendanceToast]);
+
   const isLightTab = ["bookmark", "community", "recommend"].includes(activeTab);
 
   const pageScrollLocked =
@@ -221,6 +272,11 @@ export default function MainPage() {
       {locationToast && (
         <div className="fixed bottom-28 left-1/2 z-[100] -translate-x-1/2 max-w-[90%] rounded-full bg-black/85 px-4 py-2 text-center text-xs text-white">
           {locationToast}
+        </div>
+      )}
+      {attendanceToast && (
+        <div className="fixed bottom-40 left-1/2 z-[100] -translate-x-1/2 max-w-[90%] rounded-full bg-black/85 px-4 py-2 text-center text-xs text-white">
+          {attendanceToast}
         </div>
       )}
       {loginModalOpen && <LoginModal />}

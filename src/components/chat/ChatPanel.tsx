@@ -76,6 +76,53 @@ function cleanResponse(text: string): string {
     .trim();
 }
 
+const AD_CATEGORY_KEYWORDS: Record<string, string[]> = {
+  맛집: ["맛집", "식당", "먹", "음식", "고기", "치킨", "국밥", "카페"],
+  병원: ["병원", "의원", "치과", "아플", "진료"],
+  부동산: ["집", "부동산", "임대", "아파트", "방"],
+  교육: ["학교", "학원", "과외", "교육"],
+  미용: ["미용", "헤어", "네일"],
+};
+
+function detectAdCategory(userMessage: string): string {
+  for (const [cat, keywords] of Object.entries(AD_CATEGORY_KEYWORDS)) {
+    if (keywords.some((k) => userMessage.includes(k))) return cat;
+  }
+  return "";
+}
+
+type AdApiRow = {
+  business_name?: string;
+  business_name_zh?: string;
+  address?: string;
+  phone?: string;
+  wechat?: string;
+  images?: string;
+};
+
+function adRowToRecommendedShop(
+  ad: AdApiRow
+): NonNullable<ChatMessage["recommendedShops"]>[number] {
+  const imgs =
+    typeof ad.images === "string" && ad.images
+      ? ad.images.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+  const wechat = ad.wechat?.trim();
+  return {
+    name: String(ad.business_name_zh || ad.business_name || "").trim() || "AD",
+    koreanName: String(ad.business_name || "").trim(),
+    address: String(ad.address || ""),
+    tel: String(ad.phone || ""),
+    rating: "",
+    cost: "",
+    openTime: wechat ? `WeChat: ${wechat}` : "",
+    photos: imgs,
+    lat: "",
+    lng: "",
+    isAd: true,
+  };
+}
+
 function lineStartsWithEmoji(line: string): boolean {
   const t = line.trim();
   if (!t) return false;
@@ -209,6 +256,7 @@ export function ChatPanel() {
     canAskQuestion,
     incrementQuestion,
     deductToken,
+    setUser,
     setMembershipOpen,
     addFeedback,
     incrementQuestionCount,
@@ -231,6 +279,7 @@ export function ChatPanel() {
     NonNullable<ChatMessage["recommendedShops"]>[number] | null
   >(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastAiUserMessageRef = useRef("");
   const t = i18n[lang].chat;
   const tokens = user?.tokens ?? 0;
   const isFree = user?.plan === "free";
@@ -302,6 +351,7 @@ export function ChatPanel() {
       return;
     }
     touchChatActivity();
+    lastAiUserMessageRef.current = trimmed;
     void trackActivity("ask_ai", undefined, trimmed);
     addChatMessage({ role: "user", text: trimmed });
     addChatMessage({ role: "ai", text: "" });
@@ -375,14 +425,56 @@ export function ChatPanel() {
             completed = true;
             const finalText =
               typeof data.content === "string" ? cleanResponse(data.content) : cleanResponse(fullText);
-            updateLastAiMessage(finalText, {
-              recommendedShops: data.recommendedShops ?? [],
-            });
+            const shopsFromServer = data.recommendedShops ?? [];
+            updateLastAiMessage(finalText, { recommendedShops: shopsFromServer });
+            const cat = detectAdCategory(lastAiUserMessageRef.current);
+            if (cat) {
+              void (async () => {
+                try {
+                  const res = await fetch(
+                    "/api/ads?category=" + encodeURIComponent(cat)
+                  );
+                  const j = (await res.json()) as { ads?: AdApiRow[] };
+                  const ads = Array.isArray(j.ads) ? j.ads : [];
+                  const adCards = ads.map((ad) => adRowToRecommendedShop(ad));
+                  updateLastAiMessage(finalText, {
+                    recommendedShops: [...adCards, ...shopsFromServer],
+                  });
+                } catch {
+                  /* keep server shops */
+                }
+              })();
+            }
             bumpDailyAiCount();
             setQuotaVersion((v) => v + 1);
             incrementQuestion();
             incrementQuestionCount();
-            deductToken();
+            void (async () => {
+              try {
+                const r = await fetch("/api/tokens", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    userId: currentUserId ?? 1,
+                    amount: 1,
+                    type: "spend",
+                    reason: "AI질문",
+                  }),
+                });
+                const d = (await r.json()) as {
+                  success?: boolean;
+                  tokens?: number;
+                };
+                if (d.success && typeof d.tokens === "number") {
+                  const u = useStore.getState().user;
+                  if (u) setUser({ ...u, tokens: d.tokens });
+                } else {
+                  deductToken();
+                }
+              } catch {
+                deductToken();
+              }
+            })();
           } else if (data.type === "error" && typeof data.content === "string") {
             updateLastAiMessage(data.content);
           }
@@ -681,12 +773,30 @@ export function ChatPanel() {
                                 return (
                                 <div
                                   key={`${shop.name}-${si}`}
-                                  className="group relative w-[240px] min-w-[240px] flex-shrink-0 glass-dark rounded-[14px] p-[14px] border border-white/10"
+                                  className={`group relative w-[240px] min-w-[240px] flex-shrink-0 glass-dark rounded-[14px] p-[14px] border ${
+                                    shop.isAd
+                                      ? "border-[rgba(108,92,231,0.3)]"
+                                      : "border-white/10"
+                                  }`}
                                   onContextMenu={(e) => {
+                                    if (shop.isAd) return;
                                     e.preventDefault();
                                     setReportShop(shop);
                                   }}
                                 >
+                                  {shop.isAd ? (
+                                    <span
+                                      className="absolute top-[8px] right-[10px] z-20 font-semibold text-white leading-none"
+                                      style={{
+                                        fontSize: 8,
+                                        padding: "2px 4px",
+                                        borderRadius: 4,
+                                        background: "#6c5ce7",
+                                      }}
+                                    >
+                                      AD
+                                    </span>
+                                  ) : (
                                   <button
                                     type="button"
                                     className="absolute top-[10px] right-[10px] z-10 text-[8px] leading-none p-0.5 rounded opacity-[0.08] hover:opacity-100 hover:bg-white/5 active:opacity-100 focus:opacity-100 focus:outline-none transition-opacity"
@@ -699,6 +809,7 @@ export function ChatPanel() {
                                   >
                                     ⚠️
                                   </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -917,7 +1028,11 @@ export function ChatPanel() {
                 ? `${reportShop.koreanName || reportShop.name}${reportShop.address ? ` · ${reportShop.address}` : ""}`
                 : ""
             }
-            onSubmitted={() => setToast(toastReportThanks)}
+            onSubmitted={(tokenMsg) =>
+              setToast(
+                tokenMsg ? `${toastReportThanks} ${tokenMsg}` : toastReportThanks
+              )
+            }
           />
         </>
       )}

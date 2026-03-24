@@ -20,6 +20,17 @@ type ApiReportRow = {
   created_at?: string;
 };
 
+type AdRow = {
+  id: number;
+  business_name: string;
+  business_name_zh?: string | null;
+  category: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  is_active: number | boolean;
+  created_at?: string;
+};
+
 function reportTypeLabel(t: string): string {
   if (t === "closed") return "폐업/없어짐";
   if (t === "wrong_info") return "정보 오류";
@@ -29,7 +40,7 @@ function reportTypeLabel(t: string): string {
 
 export function AdminPage() {
   const { chatFeedback, questionStats, chatMessages } = useStore();
-  const [tab, setTab] = useState<"shops" | "reports" | "feedback" | "stats">("shops");
+  const [tab, setTab] = useState<"shops" | "reports" | "feedback" | "stats" | "ads">("shops");
   const [apiReports, setApiReports] = useState<ApiReportRow[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [localShops, setLocalShops] = useState<ShopEntry[]>([]);
@@ -44,6 +55,20 @@ export function AdminPage() {
     recommendMenu: "",
     priceRange: "",
     tip: "",
+  });
+
+  const [adsList, setAdsList] = useState<AdRow[]>([]);
+  const [adsLoading, setAdsLoading] = useState(false);
+  const [adForm, setAdForm] = useState({
+    businessName: "",
+    businessNameZh: "",
+    category: "맛집",
+    description: "",
+    address: "",
+    phone: "",
+    wechat: "",
+    startDate: "",
+    endDate: "",
   });
 
   useEffect(() => {
@@ -76,6 +101,30 @@ export function AdminPage() {
         if (!cancelled) setApiReports([]);
       }
       if (!cancelled) setReportsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "ads") return;
+    let cancelled = false;
+    (async () => {
+      setAdsLoading(true);
+      try {
+        const res = await fetch("/api/ads?list=1");
+        const data = await res.json();
+        if (cancelled) return;
+        if (res.ok && Array.isArray(data.ads)) {
+          setAdsList(data.ads as AdRow[]);
+        } else {
+          setAdsList([]);
+        }
+      } catch {
+        if (!cancelled) setAdsList([]);
+      }
+      if (!cancelled) setAdsLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -155,6 +204,7 @@ export function AdminPage() {
             ["reports", "신고 관리"],
             ["feedback", "AI 피드백"],
             ["stats", "통계"],
+            ["ads", "광고 관리"],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -264,6 +314,171 @@ export function AdminPage() {
                 <p key={q} className="text-sm text-white/80">{q} ({count})</p>
               ))}
             </div>
+          </div>
+        )}
+
+        {tab === "ads" && (
+          <div className="space-y-3 mt-3">
+            <div className="glass-dark p-3 rounded-2xl space-y-2">
+              <p className="text-sm text-white/80">광고 추가</p>
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="업체명 (한글)"
+                value={adForm.businessName}
+                onChange={(e) => setAdForm((s) => ({ ...s, businessName: e.target.value }))}
+              />
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="업체명 (중문)"
+                value={adForm.businessNameZh}
+                onChange={(e) => setAdForm((s) => ({ ...s, businessNameZh: e.target.value }))}
+              />
+              <select
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                value={adForm.category}
+                onChange={(e) => setAdForm((s) => ({ ...s, category: e.target.value }))}
+              >
+                {["맛집", "병원", "부동산", "교육", "미용"].map((c) => (
+                  <option key={c} value={c} className="bg-[#1a1a24]">
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm min-h-[72px]"
+                placeholder="설명"
+                value={adForm.description}
+                onChange={(e) => setAdForm((s) => ({ ...s, description: e.target.value }))}
+              />
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="주소"
+                value={adForm.address}
+                onChange={(e) => setAdForm((s) => ({ ...s, address: e.target.value }))}
+              />
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="전화"
+                value={adForm.phone}
+                onChange={(e) => setAdForm((s) => ({ ...s, phone: e.target.value }))}
+              />
+              <input
+                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
+                placeholder="위챗"
+                value={adForm.wechat}
+                onChange={(e) => setAdForm((s) => ({ ...s, wechat: e.target.value }))}
+              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  className="flex-1 bg-white/10 rounded-lg px-2 py-2 text-sm text-white"
+                  value={adForm.startDate}
+                  onChange={(e) => setAdForm((s) => ({ ...s, startDate: e.target.value }))}
+                />
+                <input
+                  type="date"
+                  className="flex-1 bg-white/10 rounded-lg px-2 py-2 text-sm text-white"
+                  value={adForm.endDate}
+                  onChange={(e) => setAdForm((s) => ({ ...s, endDate: e.target.value }))}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!adForm.businessName.trim()) return;
+                  void fetch("/api/ads", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      businessName: adForm.businessName.trim(),
+                      businessNameZh: adForm.businessNameZh.trim() || null,
+                      category: adForm.category,
+                      description: adForm.description.trim() || null,
+                      address: adForm.address.trim() || null,
+                      phone: adForm.phone.trim() || null,
+                      wechat: adForm.wechat.trim() || null,
+                      adType: "card",
+                      startDate: adForm.startDate || null,
+                      endDate: adForm.endDate || null,
+                    }),
+                  })
+                    .then((r) => r.json())
+                    .then(() => {
+                      setAdForm({
+                        businessName: "",
+                        businessNameZh: "",
+                        category: "맛집",
+                        description: "",
+                        address: "",
+                        phone: "",
+                        wechat: "",
+                        startDate: "",
+                        endDate: "",
+                      });
+                      void fetch("/api/ads?list=1")
+                        .then((r) => r.json())
+                        .then((d: { ads?: AdRow[] }) => {
+                          if (Array.isArray(d.ads)) setAdsList(d.ads);
+                        });
+                    });
+                }}
+                className="w-full rounded-lg bg-accent py-2 text-sm"
+              >
+                광고 등록
+              </button>
+            </div>
+
+            {adsLoading ? (
+              <p className="text-sm text-white/50 py-4 text-center">불러오는 중...</p>
+            ) : adsList.length === 0 ? (
+              <p className="text-sm text-white/50 py-4 text-center">등록된 광고가 없습니다.</p>
+            ) : (
+              adsList.map((ad) => {
+                const active = Boolean(ad.is_active);
+                return (
+                  <div
+                    key={ad.id}
+                    className="glass-dark rounded-2xl p-3 flex flex-col gap-2"
+                  >
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">
+                          {ad.business_name}
+                          {ad.business_name_zh ? ` (${ad.business_name_zh})` : ""}
+                        </p>
+                        <p className="text-xs text-white/60 mt-1">카테고리: {ad.category}</p>
+                        <p className="text-[10px] text-white/40 mt-1">
+                          {(ad.start_date ?? "—") + " ~ " + (ad.end_date ?? "—")}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void fetch("/api/ads", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ id: ad.id, is_active: !active }),
+                          })
+                            .then((r) => r.json())
+                            .then(() => {
+                              setAdsList((prev) =>
+                                prev.map((a) =>
+                                  a.id === ad.id ? { ...a, is_active: !active ? 1 : 0 } : a
+                                )
+                              );
+                            });
+                        }}
+                        className={`text-xs px-2 py-1 rounded flex-shrink-0 ${
+                          active ? "bg-green-500/30 text-green-200" : "bg-white/10 text-white/60"
+                        }`}
+                      >
+                        {active ? "활성" : "비활성"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
       </div>

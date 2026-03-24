@@ -101,5 +101,7 @@ export interface ChatMessage {
     photos?: string[];
     lat: string;
     lng: string;
+    /** 채팅 내 유료 광고 카드 */
+    isAd?: boolean;
   }>;
 }

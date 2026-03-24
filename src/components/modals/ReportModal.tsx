@@ -10,11 +10,14 @@ type Props = {
   open: boolean;
   onClose: () => void;
   shopDisplayName: string;
-  onSubmitted?: () => void;
+  /** 토큰 지급/품질 안내 문구가 있으면 인자로 전달 */
+  onSubmitted?: (tokenMessage?: string) => void;
 };
 
 export function ReportModal({ open, onClose, shopDisplayName, onSubmitted }: Props) {
   const currentUserId = useStore((s) => s.currentUserId);
+  const user = useStore((s) => s.user);
+  const setUser = useStore((s) => s.setUser);
   const [otherText, setOtherText] = useState("");
   const [step, setStep] = useState<"choose" | "other">("choose");
   const [submitting, setSubmitting] = useState(false);
@@ -45,7 +48,37 @@ export function ReportModal({ open, onClose, shopDisplayName, onSubmitted }: Pro
         }),
       });
       if (res.ok) {
-        onSubmitted?.();
+        let tokenMsg: string | undefined;
+        const content = [reportType, shopDisplayName, detail?.trim() || ""]
+          .filter(Boolean)
+          .join("\n");
+        try {
+          const tr = await fetch("/api/tokens", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: currentUserId ?? 1,
+              amount: 3,
+              type: "earn",
+              reason: "정보제보",
+              content: content.slice(0, 500),
+            }),
+          });
+          const td = (await tr.json()) as {
+            success?: boolean;
+            message?: string;
+            qualityFailed?: boolean;
+            tokens?: number;
+          };
+          if (td.qualityFailed && td.message) tokenMsg = td.message;
+          else if (td.success && td.message) tokenMsg = td.message;
+          if (td.success && typeof td.tokens === "number" && user) {
+            setUser({ ...user, tokens: td.tokens });
+          }
+        } catch {
+          /* ignore */
+        }
+        onSubmitted?.(tokenMsg);
         handleClose();
       }
     } finally {

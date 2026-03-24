@@ -63,6 +63,7 @@ export function WritePostModal() {
     lang,
     triggerPostsRefresh,
     currentUserId,
+    setUser,
   } = useStore();
   useModalBodyLock(writePostOpen);
   const [category, setCategory] = useState<(typeof categories)[number]>("자유");
@@ -84,6 +85,8 @@ export function WritePostModal() {
   const [aiPolishing, setAiPolishing] = useState(false);
   const [aiOriginalContent, setAiOriginalContent] = useState("");
   const [aiState, setAiState] = useState<"idle" | "ai" | "restored">("idle");
+  const [postSubmitToast, setPostSubmitToast] = useState<string | null>(null);
+  const [tokenEarnedMark, setTokenEarnedMark] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const categoryZh = useMemo(() => {
@@ -103,6 +106,8 @@ export function WritePostModal() {
 
   useEffect(() => {
     if (!writePostOpen) {
+      setPostSubmitToast(null);
+      setTokenEarnedMark(false);
       setAiState("idle");
       setAiOriginalContent("");
       setTradePrice("");
@@ -248,6 +253,25 @@ export function WritePostModal() {
       images: imagesCsv || undefined,
       extraData: extraData && Object.values(extraData).some((v) => v) ? extraData : undefined,
     };
+
+    const finishClose = () => {
+      mediaItems.forEach((m) => URL.revokeObjectURL(m.preview));
+      setMediaItems([]);
+      closeWritePost();
+      setActiveTab("community");
+      setCategory("자유");
+      setTitle("");
+      setContent("");
+      setTagsText("");
+      setAiState("idle");
+      setAiOriginalContent("");
+      setPostSubmitToast(null);
+      setTokenEarnedMark(false);
+    };
+
+    let tokenToast: string | null = null;
+    let tokenEarned = false;
+
     try {
       const res = await fetch("/api/posts", {
         method: "POST",
@@ -273,22 +297,54 @@ export function WritePostModal() {
           setTagsText(aiTags);
           await new Promise((r) => setTimeout(r, 500));
         }
+        const postContentForQuality = `${title.trim()}\n${content.trim()}`;
+        try {
+          const tr = await fetch("/api/tokens", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: currentUserId ?? 1,
+              amount: 2,
+              type: "earn",
+              reason: "글쓰기",
+              content: postContentForQuality,
+            }),
+          });
+          const td = (await tr.json()) as {
+            success?: boolean;
+            message?: string;
+            qualityFailed?: boolean;
+            limited?: boolean;
+            error?: string;
+            tokens?: number;
+          };
+          if (td.qualityFailed && td.message) {
+            tokenToast = td.message;
+          } else if (td.limited && td.error) {
+            tokenToast = td.error;
+          } else if (td.success && td.message) {
+            tokenToast = td.message;
+            tokenEarned = true;
+            if (typeof td.tokens === "number" && user) {
+              setUser({ ...user, tokens: td.tokens });
+            }
+          }
+        } catch {
+          /* ignore token errors */
+        }
       } else {
         addPost(post);
       }
     } catch {
       addPost(post);
     }
-    mediaItems.forEach((m) => URL.revokeObjectURL(m.preview));
-    setMediaItems([]);
-    closeWritePost();
-    setActiveTab("community");
-    setCategory("자유");
-    setTitle("");
-    setContent("");
-    setTagsText("");
-    setAiState("idle");
-    setAiOriginalContent("");
+
+    if (tokenToast) {
+      setPostSubmitToast(tokenToast);
+      setTokenEarnedMark(tokenEarned);
+      await new Promise((r) => setTimeout(r, 2200));
+    }
+    finishClose();
   };
 
   const isBusy = !!uploadProgress || uploadingIndex !== null;
@@ -298,9 +354,9 @@ export function WritePostModal() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[70] bg-[#f5f6fa] text-black max-w-[430px] mx-auto"
+      className="fixed inset-0 z-[70] flex flex-col bg-[#f5f6fa] text-black max-w-[430px] mx-auto"
     >
-      <div className="h-14 px-4 flex items-center justify-between border-b border-black/10">
+      <div className="h-14 shrink-0 px-4 flex items-center justify-between border-b border-black/10">
         <button
           type="button"
           onClick={closeWritePost}
@@ -318,8 +374,25 @@ export function WritePostModal() {
           등록
         </button>
       </div>
+      <div className="shrink-0 px-4 py-1.5 border-b border-black/5 flex items-center justify-between gap-2">
+        <p className="text-[11px] text-[#a29bfe] flex-1 leading-snug">
+          {lang === "zh"
+            ? "若帖子通过质量审核，可获得 2 枚代币"
+            : "이 글이 품질 기준을 통과하면 토큰 2개를 받아요"}
+        </p>
+        {tokenEarnedMark ? (
+          <span className="text-[11px] font-medium text-accent whitespace-nowrap shrink-0">
+            {lang === "zh" ? "已获得 ✓" : "토큰 받기 ✓"}
+          </span>
+        ) : null}
+      </div>
+      {postSubmitToast ? (
+        <div className="shrink-0 mx-4 mt-2 mb-1 rounded-lg bg-black/80 text-white text-sm px-3 py-2 text-center">
+          {postSubmitToast}
+        </div>
+      ) : null}
 
-      <div className="p-4 space-y-4 overflow-y-auto h-[calc(100%-56px)]">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin -mx-1 px-1">
           {categories.map((c) => (
             <button

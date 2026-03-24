@@ -212,6 +212,41 @@ export async function GET() {
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS ad_placements (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        business_name VARCHAR(100) NOT NULL,
+        business_name_zh VARCHAR(100),
+        category VARCHAR(50) NOT NULL,
+        description TEXT,
+        address VARCHAR(200),
+        phone VARCHAR(50),
+        wechat VARCHAR(50),
+        images TEXT,
+        ad_type ENUM('card','banner','feed') DEFAULT 'card',
+        start_date DATE,
+        end_date DATE,
+        is_active BOOLEAN DEFAULT TRUE,
+        registered_by ENUM('admin','business') DEFAULT 'admin',
+        views INT DEFAULT 0,
+        clicks INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS token_transactions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        amount INT NOT NULL,
+        type ENUM('earn','spend') NOT NULL,
+        reason VARCHAR(100) NOT NULL,
+        quality_passed BOOLEAN DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
+
     // 테스트 유저 생성
     await conn.query(`
       INSERT IGNORE INTO users (id, nickname, email, avatar, plan, tokens)

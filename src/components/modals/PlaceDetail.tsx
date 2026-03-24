@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Star, MapPin, X } from "lucide-react";
 import { useStore } from "@/stores/useStore";
@@ -16,7 +17,11 @@ const placeEmoji: Record<string, string> = {
 };
 
 export function PlaceDetail() {
-  const { detailView, setDetailView, lang } = useStore();
+  const { detailView, setDetailView, lang, currentUserId, user, setUser, requireLogin } =
+    useStore();
+  const [reviewText, setReviewText] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewToast, setReviewToast] = useState<string | null>(null);
   const placeId = detailView && detailView.startsWith("pl") ? detailView : null;
   const place = placeId ? mockPlaces.find((p) => p.id === placeId) : null;
   const t = i18n[lang].common;
@@ -88,6 +93,75 @@ export function PlaceDetail() {
               ))}
             </div>
           )}
+
+          <div className="mt-6 pt-4 border-t border-black/10">
+            <p className="text-sm font-medium text-black/80 mb-2">
+              {lang === "zh" ? "写评价" : "리뷰 남기기"}
+            </p>
+            <textarea
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              placeholder={lang === "zh" ? "分享您的体验…" : "다녀온 경험을 남겨주세요…"}
+              className="w-full min-h-[88px] rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-accent/30"
+            />
+            <button
+              type="button"
+              disabled={reviewBusy || !reviewText.trim()}
+              onClick={() => {
+                if (!requireLogin()) return;
+                setReviewBusy(true);
+                setReviewToast(null);
+                const content = `${name}\n${reviewText.trim()}`;
+                void fetch("/api/tokens", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    userId: currentUserId ?? 1,
+                    amount: 3,
+                    type: "earn",
+                    reason: "리뷰",
+                    content: content.slice(0, 500),
+                  }),
+                })
+                  .then((r) => r.json())
+                  .then(
+                    (td: {
+                      success?: boolean;
+                      message?: string;
+                      qualityFailed?: boolean;
+                      tokens?: number;
+                      error?: string;
+                      limited?: boolean;
+                    }) => {
+                      if (td.qualityFailed && td.message) {
+                        setReviewToast(td.message);
+                      } else if (td.limited && td.error) {
+                        setReviewToast(td.error);
+                      } else if (td.success && td.message) {
+                        setReviewToast(td.message);
+                        setReviewText("");
+                        if (typeof td.tokens === "number" && user) {
+                          setUser({ ...user, tokens: td.tokens });
+                        }
+                      }
+                    }
+                  )
+                  .finally(() => setReviewBusy(false));
+              }}
+              className="mt-2 w-full rounded-xl bg-accent py-2.5 text-sm font-medium text-white disabled:opacity-40"
+            >
+              {reviewBusy
+                ? lang === "zh"
+                  ? "提交中…"
+                  : "전송 중…"
+                : lang === "zh"
+                  ? "提交评价"
+                  : "리뷰 등록"}
+            </button>
+            {reviewToast ? (
+              <p className="mt-2 text-xs text-black/60">{reviewToast}</p>
+            ) : null}
+          </div>
         </div>
       </motion.div>
     </>
