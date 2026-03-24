@@ -21,6 +21,7 @@ import { WritePromotionModal } from "@/components/modals/WritePromotionModal";
 import { MapActionSheet } from "@/components/modals/MapActionSheet";
 import { LoginModal } from "@/components/modals/LoginModal";
 import { Toast } from "@/components/common/Toast";
+import { OnboardingModal } from "@/components/modals/OnboardingModal";
 import type { TabKey } from "@/types";
 
 const pages: Record<TabKey, React.ReactNode> = {
@@ -49,6 +50,13 @@ export default function MainPage() {
   const lang = useStore((s) => s.lang);
   const [locationToast, setLocationToast] = useState<string | null>(null);
   const [attendanceToast, setAttendanceToast] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const seen = window.localStorage.getItem("bababang-onboarding");
+    if (!seen) setShowOnboarding(true);
+  }, []);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("bababang-user");
@@ -229,7 +237,11 @@ export default function MainPage() {
   const isLightTab = ["bookmark", "community", "recommend"].includes(activeTab);
 
   const pageScrollLocked =
-    chatOpen || loginModalOpen || writePostOpen || promotionModalOpen;
+    chatOpen ||
+    loginModalOpen ||
+    writePostOpen ||
+    promotionModalOpen ||
+    showOnboarding;
 
   return (
     <div
@@ -283,6 +295,11 @@ export default function MainPage() {
         </div>
       )}
       {loginModalOpen && <LoginModal />}
+
+      <OnboardingModal
+        open={showOnboarding}
+        onComplete={() => setShowOnboarding(false)}
+      />
     </div>
   );
 }

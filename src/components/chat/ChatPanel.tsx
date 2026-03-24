@@ -135,6 +135,60 @@ type AiSegment =
   | { type: "text"; lines: string[] }
   | { type: "chips"; lines: string[] };
 
+function TextBlockWithChecklist({
+  lines,
+  segIdx,
+  messageKey,
+}: {
+  lines: string[];
+  segIdx: number;
+  messageKey: string;
+}) {
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  return (
+    <div className="flex flex-col gap-0.5">
+      {lines.map((line, li) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("□") || trimmed.startsWith("☐")) {
+          const id = `${messageKey}-s${segIdx}-l${li}`;
+          const isChecked = checked[id] ?? false;
+          const label = trimmed.replace(/^□\s*|☐\s*/, "");
+          return (
+            <label
+              key={id}
+              className="flex gap-2 py-1 cursor-pointer items-start text-left"
+            >
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={(e) =>
+                  setChecked((s) => ({ ...s, [id]: e.target.checked }))
+                }
+                className="mt-1 shrink-0 accent-[#6c5ce7]"
+              />
+              <span
+                className={
+                  isChecked ? "line-through text-white/50" : "text-white/95"
+                }
+              >
+                {label}
+              </span>
+            </label>
+          );
+        }
+        return (
+          <div
+            key={`${messageKey}-plain-s${segIdx}-l${li}`}
+            className="whitespace-pre-wrap break-words"
+          >
+            {line}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function segmentAiMessage(text: string): AiSegment[] {
   const rawLines = text.split(/\r?\n/);
   const segments: AiSegment[] = [];
@@ -175,10 +229,12 @@ function AiMessageContent({
   text,
   isStatusPhase,
   onChipTap,
+  messageKey,
 }: {
   text: string;
   isStatusPhase: boolean;
   onChipTap: (line: string) => void;
+  messageKey?: string;
 }) {
   if (isStatusPhase) {
     return <>{text}</>;
@@ -192,8 +248,18 @@ function AiMessageContent({
         }
         if (seg.type === "text") {
           return (
-            <div key={segIdx} className="whitespace-pre-wrap break-words">
-              {seg.lines.join("\n")}
+            <div key={segIdx}>
+              {messageKey ? (
+                <TextBlockWithChecklist
+                  lines={seg.lines}
+                  segIdx={segIdx}
+                  messageKey={messageKey}
+                />
+              ) : (
+                <div className="whitespace-pre-wrap break-words">
+                  {seg.lines.join("\n")}
+                </div>
+              )}
             </div>
           );
         }
@@ -328,7 +394,184 @@ export function ChatPanel() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const faqPrompts = [t.faq1, t.faq2, t.faq3, t.faq4, t.faq5, t.faq6];
+  const popularQuestions: Array<{
+    emoji: string;
+    text: string;
+    action?: "camera" | "voice";
+  }> = [
+    { emoji: "🍜", text: "칭다오 맛집 추천해줘" },
+    { emoji: "📋", text: "비자 연장 어떻게 해?" },
+    { emoji: "🏥", text: "한국어 되는 병원 알려줘" },
+    { emoji: "🏠", text: "집 구하려면 어떻게 해?" },
+    { emoji: "💰", text: "오늘 환율 알려줘" },
+    { emoji: "🌤️", text: "오늘 날씨 어때?" },
+    { emoji: "📸", text: "사진 번역해줘", action: "camera" },
+    { emoji: "🎙️", text: "음성번역 시작", action: "voice" },
+    { emoji: "🤖", text: "은행 계좌 개설 방법 알려줘" },
+    { emoji: "📱", text: "중국 유심 개통 방법" },
+  ];
+
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const voiceRecognitionRef = useRef<{ stop: () => void } | null>(null);
+  const [voiceTranslateMode, setVoiceTranslateMode] = useState(false);
+  const [voiceLang, setVoiceLang] = useState<"ko" | "zh">("ko");
+  const [voiceResult, setVoiceResult] = useState({ original: "", translated: "" });
+  const [isVoiceTranslateListening, setIsVoiceTranslateListening] = useState(false);
+  const [isVoiceChatListening, setIsVoiceChatListening] = useState(false);
+
+  const handleImageUpload = (file: File) => {
+    if (!requireLogin()) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      void (async () => {
+        addChatMessage({ role: "user", text: "📸 사진 번역 요청", image: dataUrl });
+        addChatMessage({ role: "ai", text: "🔍 사진을 분석하고 번역중..." });
+        try {
+          const res = await fetch("/api/translate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: dataUrl, mode: "translate" }),
+          });
+          const data = (await res.json()) as { translation?: string; error?: string };
+          updateLastAiMessage(
+            data.translation || data.error || "번역에 실패했어요."
+          );
+        } catch {
+          updateLastAiMessage("번역에 실패했어요. 다시 시도해주세요.");
+        }
+      })();
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const startVoiceTranslate = () => {
+    if (isVoiceTranslateListening && voiceRecognitionRef.current) {
+      try {
+        voiceRecognitionRef.current.stop();
+      } catch {
+        /* ignore */
+      }
+      voiceRecognitionRef.current = null;
+      setIsVoiceTranslateListening(false);
+      return;
+    }
+    const w = window as unknown as {
+      SpeechRecognition?: new () => {
+        lang: string;
+        interimResults: boolean;
+        maxAlternatives: number;
+        start: () => void;
+        stop: () => void;
+        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+      };
+      webkitSpeechRecognition?: new () => {
+        lang: string;
+        interimResults: boolean;
+        maxAlternatives: number;
+        start: () => void;
+        stop: () => void;
+        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+      };
+    };
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) {
+      alert(
+        lang === "zh"
+          ? "当前浏览器不支持语音识别"
+          : "이 브라우저에서 음성인식을 지원하지 않아요."
+      );
+      return;
+    }
+    const recognition = new SR();
+    recognition.lang = voiceLang === "ko" ? "ko-KR" : "zh-CN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    voiceRecognitionRef.current = recognition;
+    setIsVoiceTranslateListening(true);
+    recognition.start();
+
+    recognition.onresult = (event: { results: Array<Array<{ transcript: string }>> }) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? "";
+      setVoiceResult((prev) => ({ ...prev, original: transcript }));
+      setIsVoiceTranslateListening(false);
+      voiceRecognitionRef.current = null;
+      void (async () => {
+        try {
+          const targetLang = voiceLang === "ko" ? "중국어" : "한국어";
+          const res = await fetch("/api/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: transcript, targetLang }),
+          });
+          const data = (await res.json()) as { translation?: string };
+          const translated = data.translation ?? "";
+          setVoiceResult({ original: transcript, translated });
+          const utterance = new SpeechSynthesisUtterance(translated);
+          utterance.lang = voiceLang === "ko" ? "zh-CN" : "ko-KR";
+          utterance.rate = 0.9;
+          window.speechSynthesis.speak(utterance);
+        } catch {
+          setVoiceResult((prev) => ({ ...prev, translated: "번역 실패" }));
+        }
+      })();
+    };
+    recognition.onerror = () => {
+      setIsVoiceTranslateListening(false);
+      voiceRecognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setIsVoiceTranslateListening(false);
+      voiceRecognitionRef.current = null;
+    };
+  };
+
+  const startVoiceInput = () => {
+    const w = window as unknown as {
+      SpeechRecognition?: new () => {
+        lang: string;
+        interimResults: boolean;
+        start: () => void;
+        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+      };
+      webkitSpeechRecognition?: new () => {
+        lang: string;
+        interimResults: boolean;
+        start: () => void;
+        onresult: ((e: { results: Array<Array<{ transcript: string }>> }) => void) | null;
+        onerror: (() => void) | null;
+        onend: (() => void) | null;
+      };
+    };
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) {
+      alert(
+        lang === "zh"
+          ? "当前浏览器不支持语音识别"
+          : "음성인식을 지원하지 않는 브라우저예요."
+      );
+      return;
+    }
+    if (isVoiceChatListening) return;
+    const recognition = new SR();
+    recognition.lang = "ko-KR";
+    recognition.interimResults = false;
+    setIsVoiceChatListening(true);
+    recognition.start();
+    recognition.onresult = (event: { results: Array<Array<{ transcript: string }>> }) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? "";
+      setIsVoiceChatListening(false);
+      if (transcript.trim()) void sendMessage(transcript.trim());
+    };
+    recognition.onerror = () => setIsVoiceChatListening(false);
+    recognition.onend = () => setIsVoiceChatListening(false);
+  };
 
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
@@ -564,7 +807,7 @@ export function ChatPanel() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex shrink-0 items-center gap-2 px-3 py-3 border-b border-white/10 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
+            <div className="flex shrink-0 items-center gap-1.5 px-2 py-3 border-b border-white/10 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
               <motion.button
                 type="button"
                 onClick={() => setChatOpen(false)}
@@ -574,12 +817,20 @@ export function ChatPanel() {
               >
                 <X className="w-6 h-6 text-white" strokeWidth={2} />
               </motion.button>
+              <button
+                type="button"
+                onClick={() => setVoiceTranslateMode(true)}
+                className="shrink-0 rounded-lg bg-white/10 px-2 py-1.5 text-[11px] text-white/90 hover:bg-white/15"
+                title={lang === "zh" ? "语音翻译" : "음성번역"}
+              >
+                🎙️
+              </button>
               <div className="flex-1 flex flex-col items-center justify-center min-w-0">
                 <p className="font-outfit font-semibold text-white text-sm sm:text-base truncate w-full text-center">
                   {t.aiName}
                 </p>
               </div>
-              <div className="shrink-0 text-right text-xs text-white/90 min-w-[4.5rem]">
+              <div className="shrink-0 text-right text-xs text-white/90 min-w-[3.5rem]">
                 <span className="text-white/50">{t.tokensLabel}</span>{" "}
                 <span className="font-semibold text-white">{tokens}</span>
               </div>
@@ -665,6 +916,7 @@ export function ChatPanel() {
                             text={aiDisplayText}
                             isStatusPhase={isStatusPhase}
                             onChipTap={(line) => void sendMessage(line)}
+                            messageKey={`ai-${i}`}
                           />
                           {isFreeQuotaCta ? (
                             <motion.button
@@ -940,13 +1192,20 @@ export function ChatPanel() {
                       </div>
                     ) : (
                       <div
-                        className="max-w-[85%] rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl rounded-br-[4px] px-4 py-3 text-sm text-white"
+                        className="max-w-[85%] rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl rounded-br-[4px] px-4 py-3 text-sm text-white flex flex-col gap-2"
                         style={{
                           background:
                             "linear-gradient(135deg, #6c5ce7 0%, #8b7cf7 100%)",
                         }}
                       >
-                        {msg.text}
+                        {msg.image ? (
+                          <img
+                            src={msg.image}
+                            alt=""
+                            className="max-w-full max-h-48 rounded-lg object-contain"
+                          />
+                        ) : null}
+                        <span className="whitespace-pre-wrap break-words">{msg.text}</span>
                       </div>
                     )}
                   </motion.div>
@@ -960,14 +1219,25 @@ export function ChatPanel() {
                     {lang === "zh" ? "热门提问" : "인기 질문"}
                   </p>
                   <div className="grid grid-cols-2 gap-2">
-                    {faqPrompts.map((prompt) => (
+                    {popularQuestions.map((item) => (
                       <button
-                        key={prompt}
+                        key={item.text}
                         type="button"
-                        onClick={() => sendMessage(prompt)}
+                        onClick={() => {
+                          if (item.action === "camera") {
+                            cameraInputRef.current?.click();
+                            return;
+                          }
+                          if (item.action === "voice") {
+                            setVoiceTranslateMode(true);
+                            return;
+                          }
+                          void sendMessage(item.text);
+                        }}
                         className="text-left rounded-xl bg-white/10 px-3 py-2 text-xs text-white/90"
                       >
-                        {prompt}
+                        <span className="mr-1">{item.emoji}</span>
+                        {item.text}
                       </button>
                     ))}
                   </div>
@@ -1022,7 +1292,7 @@ export function ChatPanel() {
             </p>
             {/* 입력창 + 전송 (sticky 하단 + safe-area) */}
             <div
-              className="chat-input-area border-t border-white/10 flex w-full min-w-0 overflow-hidden"
+              className="chat-input-area border-t border-white/10 flex w-full min-w-0 overflow-hidden items-center"
               style={{
                 display: "flex",
                 gap: 8,
@@ -1030,6 +1300,42 @@ export function ChatPanel() {
                 width: "100%",
               }}
             >
+              <label
+                className="shrink-0 cursor-pointer p-2 rounded-xl hover:bg-white/10 flex items-center justify-center"
+                style={{ padding: 8 }}
+                title={lang === "zh" ? "拍照翻译" : "사진 번역"}
+              >
+                <span className="text-xl leading-none select-none" aria-hidden>
+                  📷
+                </span>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImageUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <motion.button
+                type="button"
+                onClick={() => startVoiceInput()}
+                className="shrink-0 p-2 rounded-xl flex items-center justify-center"
+                style={{
+                  background: isVoiceChatListening
+                    ? "rgba(239,68,68,0.35)"
+                    : "rgba(255,255,255,0.08)",
+                }}
+                whileTap={{ scale: 0.95 }}
+                title={lang === "zh" ? "语音输入" : "음성 질문"}
+                aria-label={lang === "zh" ? "语音输入" : "음성 질문"}
+              >
+                <span className="text-xl leading-none">{isVoiceChatListening ? "⏹️" : "🎤"}</span>
+              </motion.button>
               <input
                 type="text"
                 value={input}
@@ -1049,6 +1355,111 @@ export function ChatPanel() {
                 <Send className="w-5 h-5" />
               </motion.button>
             </div>
+
+            {voiceTranslateMode ? (
+              <div
+                className="absolute inset-0 z-[100] flex flex-col bg-[#0a0a0f]"
+                style={{ top: 0, right: 0, bottom: 0, left: 0 }}
+              >
+                <div
+                  className="flex shrink-0 items-center justify-between px-4 py-3 border-b border-white/10"
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        voiceRecognitionRef.current?.stop();
+                      } catch {
+                        /* ignore */
+                      }
+                      setVoiceTranslateMode(false);
+                      setIsVoiceTranslateListening(false);
+                    }}
+                    className="text-white/80 text-lg px-2"
+                    aria-label="닫기"
+                  >
+                    ✕
+                  </button>
+                  <span className="font-semibold text-white text-sm">🎙️ 음성번역</span>
+                  <div className="w-6" />
+                </div>
+                <div
+                  className="flex-1 flex flex-col justify-center px-5 gap-5 min-h-0 overflow-y-auto"
+                  style={{ padding: 20, gap: 20 }}
+                >
+                  <div
+                    className="rounded-2xl p-5 min-h-[5rem]"
+                    style={{ background: "rgba(255,255,255,0.05)" }}
+                  >
+                    <div
+                      className="text-[11px] mb-2"
+                      style={{ color: "rgba(255,255,255,0.4)" }}
+                    >
+                      {voiceLang === "ko" ? "🇰🇷 한국어" : "🇨🇳 中文"}
+                    </div>
+                    <div className="text-lg text-white">
+                      {voiceResult.original || "마이크를 누르고 말해보세요"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVoiceLang((v) => (v === "ko" ? "zh" : "ko"))
+                    }
+                    className="self-center rounded-full px-5 py-2 text-sm text-white border"
+                    style={{
+                      background: "rgba(108,92,231,0.2)",
+                      borderColor: "rgba(108,92,231,0.3)",
+                    }}
+                  >
+                    🔄 {voiceLang === "ko" ? "한→中" : "中→한"} 전환
+                  </button>
+                  <div
+                    className="rounded-2xl p-5 min-h-[5rem] border"
+                    style={{
+                      background: "rgba(108,92,231,0.1)",
+                      borderColor: "rgba(108,92,231,0.2)",
+                    }}
+                  >
+                    <div
+                      className="text-[11px] mb-2"
+                      style={{ color: "rgba(255,255,255,0.4)" }}
+                    >
+                      {voiceLang === "ko" ? "🇨🇳 中文 번역" : "🇰🇷 한국어 번역"}
+                    </div>
+                    <div className="text-lg" style={{ color: "#a78bfa" }}>
+                      {voiceResult.translated || "번역 결과가 여기에 표시돼요"}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-center py-8">
+                  <button
+                    type="button"
+                    onClick={() => startVoiceTranslate()}
+                    className="rounded-full flex items-center justify-center border-0"
+                    style={{
+                      width: 80,
+                      height: 80,
+                      background: isVoiceTranslateListening
+                        ? "rgba(239,68,68,0.8)"
+                        : "linear-gradient(135deg, #6c5ce7, #a78bfa)",
+                      boxShadow: isVoiceTranslateListening
+                        ? "0 0 30px rgba(239,68,68,0.5)"
+                        : "0 0 30px rgba(108,92,231,0.3)",
+                    }}
+                  >
+                    <span className="text-3xl">{isVoiceTranslateListening ? "⏹️" : "🎤"}</span>
+                  </button>
+                </div>
+                <p
+                  className="text-center pb-8 text-[13px]"
+                  style={{ color: "rgba(255,255,255,0.4)" }}
+                >
+                  {isVoiceTranslateListening ? "듣고 있어요..." : "마이크를 누르고 말해보세요"}
+                </p>
+              </div>
+            ) : null}
           </motion.aside>
           <ReportModal
             open={!!reportShop}

@@ -88,6 +88,8 @@ export interface User {
 export interface ChatMessage {
   role: "ai" | "user";
   text: string;
+  /** 유저 메시지: 로컬 미리보기용 data URL */
+  image?: string;
   sources?: Array<{ title: string; link: string }>;
   /** 高德 실시간 검색 + AI 답변 매칭 결과 */
   recommendedShops?: Array<{
