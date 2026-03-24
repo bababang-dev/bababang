@@ -12,11 +12,12 @@ export function FloatingSecondaryFAB() {
   const openPromotionModal = useStore((s) => s.openPromotionModal);
   const requireLogin = useStore((s) => s.requireLogin);
   const chatOpen = useStore((s) => s.chatOpen);
+  const isKeyboardOpen = useStore((s) => s.isKeyboardOpen);
 
   const showCommunity = activeTab === "community";
   const showPromotion = activeTab === "recommend" && recommendSubTab === "promo";
 
-  if (chatOpen) return null;
+  if (chatOpen || isKeyboardOpen) return null;
   if (!showCommunity && !showPromotion) return null;
 
   return (

@@ -25,6 +25,9 @@ interface AppState {
   chatOpen: boolean;
   setChatOpen: (open: boolean) => void;
   toggleChat: () => void;
+  /** 모바일 키보드 등 (하단 탭·FAB 숨김용) */
+  isKeyboardOpen: boolean;
+  setKeyboardOpen: (open: boolean) => void;
   chatMessages: ChatMessage[];
   addChatMessage: (msg: ChatMessage) => void;
   updateLastAiMessage: (
@@ -157,6 +160,8 @@ export const useStore = create<AppState>((set, get) => ({
   chatOpen: false,
   setChatOpen: (open) => set({ chatOpen: open }),
   toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
+  isKeyboardOpen: false,
+  setKeyboardOpen: (open) => set({ isKeyboardOpen: open }),
   chatMessages: [],
   addChatMessage: (msg) =>
     set((s) => ({ chatMessages: [...s.chatMessages, msg] })),

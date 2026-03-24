@@ -25,7 +25,10 @@ const activeColor = "#6c5ce7";
 
 export function BottomNav() {
   const { activeTab, setActiveTab, lang } = useStore();
+  const isKeyboardOpen = useStore((s) => s.isKeyboardOpen);
   const t = i18n[lang].tab;
+
+  if (isKeyboardOpen) return null;
 
   return (
     <nav className="bottom-nav-fixed">

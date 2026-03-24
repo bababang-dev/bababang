@@ -45,10 +45,20 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* iOS 자동 확대 방지 */
 input,
 textarea,
 select {
   font-size: 16px !important;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media screen and (max-width: 768px) {
+  input:focus,
+  textarea:focus,
+  select:focus {
+    font-size: 16px !important;
+  }
 }
 
 /* 웹, 모바일, 위챗 브라우저 모두 대응 */

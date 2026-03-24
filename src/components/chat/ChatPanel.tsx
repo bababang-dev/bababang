@@ -731,7 +731,8 @@ export function ChatPanel() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
                 placeholder={t.placeholder}
-                className="flex-1 bg-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 text-sm outline-none focus:ring-2 focus:ring-accent/50"
+                className="flex-1 bg-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-accent/50"
+                style={{ fontSize: "16px" }}
               />
               <motion.button
                 type="button"

@@ -98,6 +98,47 @@ export default function MainPage() {
   }, [activeTab]);
 
   useEffect(() => {
+    const { setKeyboardOpen } = useStore.getState();
+
+    const handleResize = () => {
+      if (typeof window !== "undefined" && window.visualViewport) {
+        const isKeyboard = window.visualViewport.height < window.innerHeight * 0.75;
+        setKeyboardOpen(isKeyboard);
+      }
+    };
+
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (vv) {
+      vv.addEventListener("resize", handleResize);
+    }
+
+    let blurTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleFocus = (e: FocusEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        setKeyboardOpen(true);
+      }
+    };
+    const handleBlur = () => {
+      if (blurTimer) clearTimeout(blurTimer);
+      blurTimer = setTimeout(() => {
+        blurTimer = null;
+        useStore.getState().setKeyboardOpen(false);
+      }, 100);
+    };
+
+    document.addEventListener("focusin", handleFocus);
+    document.addEventListener("focusout", handleBlur);
+
+    return () => {
+      vv?.removeEventListener("resize", handleResize);
+      if (blurTimer) clearTimeout(blurTimer);
+      document.removeEventListener("focusin", handleFocus);
+      document.removeEventListener("focusout", handleBlur);
+      useStore.getState().setKeyboardOpen(false);
+    };
+  }, []);
+
+  useEffect(() => {
     if (activeTab !== "recommend") {
       setRecommendSubTab("places");
     }
