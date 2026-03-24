@@ -1625,13 +1625,15 @@ export function ChatPanel() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 16,
+                      gap: 12,
                       padding: "12px 0",
                     }}
                   >
-                    <div
+                    <button
+                      type="button"
+                      onClick={() => setVoiceLang("ko")}
                       style={{
-                        padding: "10px 20px",
+                        padding: "12px 24px",
                         borderRadius: 12,
                         background:
                           voiceLang === "ko"
@@ -1648,30 +1650,13 @@ export function ChatPanel() {
                       }}
                     >
                       🇰🇷 한국어
-                    </div>
+                    </button>
+                    <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 20 }}>→</span>
                     <button
                       type="button"
-                      onClick={() => setVoiceLang((v) => (v === "ko" ? "zh" : "ko"))}
+                      onClick={() => setVoiceLang("zh")}
                       style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: "50%",
-                        background: "linear-gradient(135deg, #6c5ce7, #a78bfa)",
-                        border: "none",
-                        color: "white",
-                        fontSize: 18,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        boxShadow: "0 2px 10px rgba(108,92,231,0.3)",
-                      }}
-                      aria-label={lang === "zh" ? "切换语言" : "언어 전환"}
-                    >
-                      🔄
-                    </button>
-                    <div
-                      style={{
-                        padding: "10px 20px",
+                        padding: "12px 24px",
                         borderRadius: 12,
                         background:
                           voiceLang === "zh"
@@ -1688,7 +1673,7 @@ export function ChatPanel() {
                       }}
                     >
                       🇨🇳 中文
-                    </div>
+                    </button>
                   </div>
 
                   <div
