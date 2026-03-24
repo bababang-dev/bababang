@@ -33,7 +33,8 @@ export function BottomNav() {
       s.loginModalOpen ||
       s.isKeyboardOpen ||
       Boolean(s.detailView) ||
-      s.profileEditOpen
+      s.profileEditOpen ||
+      s.adminOpen
   );
   const t = i18n[lang].tab;
 

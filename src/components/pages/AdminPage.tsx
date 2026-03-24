@@ -180,6 +180,7 @@ export function AdminPage() {
     phone: "",
     notes: "",
   });
+  const [dictModalOpen, setDictModalOpen] = useState(false);
 
   const [kbItems, setKbItems] = useState<
     Array<{
@@ -614,6 +615,7 @@ export function AdminPage() {
         phone: "",
         notes: "",
       });
+      setDictModalOpen(false);
       refreshDictList();
     } else {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -621,14 +623,18 @@ export function AdminPage() {
     }
   };
 
-  const deleteDictionaryRow = async (id: number) => {
-    if (!confirm("삭제할까요?")) return;
+  const deleteDictionaryRow = async (id: number): Promise<boolean> => {
+    if (!confirm("삭제할까요?")) return false;
     const res = await fetch("/api/admin/shop-dictionary", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
-    if (res.ok) refreshDictList();
+    if (res.ok) {
+      refreshDictList();
+      return true;
+    }
+    return false;
   };
 
   const startEditDictionary = (row: Record<string, unknown>) => {
@@ -642,6 +648,21 @@ export function AdminPage() {
       phone: String(row.phone ?? ""),
       notes: String(row.notes ?? ""),
     });
+    setDictModalOpen(true);
+  };
+
+  const openDictionaryModalForAdd = () => {
+    setDictEditingId(null);
+    setDictForm({
+      nameZh: "",
+      nameKo: "",
+      category: "기타",
+      district: "",
+      address: "",
+      phone: "",
+      notes: "",
+    });
+    setDictModalOpen(true);
   };
 
   const cancelDictionaryForm = () => {
@@ -655,6 +676,13 @@ export function AdminPage() {
       phone: "",
       notes: "",
     });
+    setDictModalOpen(false);
+  };
+
+  const deleteDictionaryInModal = async () => {
+    if (!dictEditingId) return;
+    const ok = await deleteDictionaryRow(dictEditingId);
+    if (ok) cancelDictionaryForm();
   };
 
   const statCards = [
@@ -1102,90 +1130,11 @@ export function AdminPage() {
           <div className="mt-3 space-y-3">
             <button
               type="button"
-              onClick={() => {
-                cancelDictionaryForm();
-              }}
+              onClick={() => openDictionaryModalForAdd()}
               className="w-full rounded-lg bg-accent py-2 text-sm"
             >
               + 가게 추가
             </button>
-
-            <div className="glass-dark rounded-2xl p-3 space-y-2">
-              <p className="text-sm text-white/80">
-                {dictEditingId ? `수정 (#${dictEditingId})` : "가게 등록"}
-              </p>
-              <input
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
-                placeholder='중국어 이름 (예: 缸桶屋(城阳店))'
-                value={dictForm.nameZh}
-                onChange={(e) => setDictForm((s) => ({ ...s, nameZh: e.target.value }))}
-              />
-              <input
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
-                placeholder="한국어 이름, 쉼표 구분 (예: 깡통집,강통집)"
-                value={dictForm.nameKo}
-                onChange={(e) => setDictForm((s) => ({ ...s, nameKo: e.target.value }))}
-              />
-              <select
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white"
-                value={dictForm.category}
-                onChange={(e) => setDictForm((s) => ({ ...s, category: e.target.value }))}
-              >
-                {DICT_CATEGORY_OPTIONS.map((c) => (
-                  <option key={c} value={c} className="bg-[#1a1a24]">
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm text-white"
-                value={dictForm.district}
-                onChange={(e) => setDictForm((s) => ({ ...s, district: e.target.value }))}
-              >
-                <option value="" className="bg-[#1a1a24]">
-                  지역 선택
-                </option>
-                {DICT_DISTRICT_OPTIONS.map((d) => (
-                  <option key={d} value={d} className="bg-[#1a1a24]">
-                    {d}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
-                placeholder="주소"
-                value={dictForm.address}
-                onChange={(e) => setDictForm((s) => ({ ...s, address: e.target.value }))}
-              />
-              <input
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
-                placeholder="전화"
-                value={dictForm.phone}
-                onChange={(e) => setDictForm((s) => ({ ...s, phone: e.target.value }))}
-              />
-              <textarea
-                className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm min-h-[64px]"
-                placeholder="메모"
-                value={dictForm.notes}
-                onChange={(e) => setDictForm((s) => ({ ...s, notes: e.target.value }))}
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => void saveDictionary()}
-                  className="flex-1 rounded-lg bg-accent py-2 text-sm"
-                >
-                  저장
-                </button>
-                <button
-                  type="button"
-                  onClick={() => cancelDictionaryForm()}
-                  className="flex-1 rounded-lg bg-white/10 py-2 text-sm"
-                >
-                  취소
-                </button>
-              </div>
-            </div>
 
             <input
               className="w-full bg-white/10 rounded-lg px-3 py-2 text-sm"
@@ -1228,6 +1177,115 @@ export function AdminPage() {
                   );
                 })}
               </div>
+            )}
+
+            {dictModalOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-[1199]"
+                  style={{ background: "rgba(0,0,0,0.5)" }}
+                  onClick={() => cancelDictionaryForm()}
+                  aria-hidden
+                />
+                <div
+                  className="fixed bottom-0 left-0 right-0 z-[1200] mx-auto max-h-[90vh] w-full max-w-[430px] overflow-y-auto rounded-t-[20px] p-5"
+                  style={{ background: "#1a1a2e" }}
+                >
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-sm font-medium text-white">
+                      {dictEditingId ? "가게 수정" : "가게 추가"}
+                    </p>
+                    <button
+                      type="button"
+                      className="px-2 text-lg leading-none text-white/80"
+                      onClick={() => cancelDictionaryForm()}
+                      aria-label="닫기"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <label className="mb-1 block text-[10px] text-white/50">중국어 이름</label>
+                  <input
+                    className="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+                    placeholder='예: 缸桶屋(城阳店)'
+                    value={dictForm.nameZh}
+                    onChange={(e) => setDictForm((s) => ({ ...s, nameZh: e.target.value }))}
+                  />
+                  <label className="mb-1 block text-[10px] text-white/50">한국어 이름 (쉼표 구분)</label>
+                  <input
+                    className="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+                    placeholder="예: 깡통집,강통집"
+                    value={dictForm.nameKo}
+                    onChange={(e) => setDictForm((s) => ({ ...s, nameKo: e.target.value }))}
+                  />
+                  <label className="mb-1 block text-[10px] text-white/50">카테고리</label>
+                  <select
+                    className="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+                    value={dictForm.category}
+                    onChange={(e) => setDictForm((s) => ({ ...s, category: e.target.value }))}
+                  >
+                    {DICT_CATEGORY_OPTIONS.map((c) => (
+                      <option key={c} value={c} className="bg-[#1a1a24]">
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="mb-1 block text-[10px] text-white/50">지역</label>
+                  <select
+                    className="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+                    value={dictForm.district}
+                    onChange={(e) => setDictForm((s) => ({ ...s, district: e.target.value }))}
+                  >
+                    <option value="" className="bg-[#1a1a24]">
+                      지역 선택
+                    </option>
+                    {DICT_DISTRICT_OPTIONS.map((d) => (
+                      <option key={d} value={d} className="bg-[#1a1a24]">
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="mb-1 block text-[10px] text-white/50">주소</label>
+                  <input
+                    className="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+                    placeholder="주소"
+                    value={dictForm.address}
+                    onChange={(e) => setDictForm((s) => ({ ...s, address: e.target.value }))}
+                  />
+                  <label className="mb-1 block text-[10px] text-white/50">전화</label>
+                  <input
+                    className="mb-3 w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+                    placeholder="전화"
+                    value={dictForm.phone}
+                    onChange={(e) => setDictForm((s) => ({ ...s, phone: e.target.value }))}
+                  />
+                  <label className="mb-1 block text-[10px] text-white/50">메모</label>
+                  <textarea
+                    className="mb-4 min-h-[64px] w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
+                    placeholder="메모"
+                    value={dictForm.notes}
+                    onChange={(e) => setDictForm((s) => ({ ...s, notes: e.target.value }))}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="flex-1 rounded-lg bg-accent py-2 text-sm text-white"
+                      onClick={() => void saveDictionary()}
+                    >
+                      저장
+                    </button>
+                    {dictEditingId ? (
+                      <button
+                        type="button"
+                        className="flex-1 rounded-lg bg-red-500/30 py-2 text-sm text-white"
+                        onClick={() => void deleteDictionaryInModal()}
+                      >
+                        삭제
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}

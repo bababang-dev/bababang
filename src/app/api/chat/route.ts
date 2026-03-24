@@ -11,6 +11,7 @@ import {
   cacheSearchResult,
 } from "@/lib/searchCache";
 import { firecrawlScrape } from "@/lib/firecrawl";
+import { amapSearch, type AmapPoiItem } from "@/lib/amap";
 
 type ChatDbPostRow = RowDataPacket & {
   title: string;
@@ -109,61 +110,6 @@ async function crawlChinazoa(query: string): Promise<string[]> {
     console.log("=== 차이나조아 에러 ===", e);
   }
   return results.slice(0, 60);
-}
-
-// ═══ 高德地图 검색 ═══
-async function amapSearch(
-  keywords: string,
-  city: string = "青岛"
-): Promise<
-  Array<{
-    name: string;
-    address: string;
-    tel: string;
-    rating: string;
-    cost: string;
-    openTime: string;
-    photos: string[];
-    type: string;
-    location: string;
-  }>
-> {
-  try {
-    const key = process.env.AMAP_API_KEY;
-    if (!key) return [];
-    const url = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(keywords)}&city=${encodeURIComponent(city)}&output=json&key=${key}&offset=30&extensions=all`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    const data = (await res.json()) as {
-      pois?: Array<{
-        name?: string;
-        address?: string;
-        tel?: string;
-        rating?: string;
-        location?: string;
-        photos?: Array<{ url?: string } | string>;
-        biz_ext?: { rating?: string; cost?: string; open_time?: string; meal_ordering?: string };
-        type?: string;
-      }>;
-    };
-    console.log("=== 高德 [" + keywords + "]: " + (data.pois?.length || 0) + "개 ===");
-    return (data.pois || []).map((poi) => {
-      const photos =
-        poi.photos?.slice(0, 3).map((p) => (typeof p === "string" ? p : p?.url ?? "")).filter(Boolean) ?? [];
-      return {
-        name: poi.name ?? "",
-        address: poi.address ?? "",
-        tel: poi.tel ?? "",
-        rating: poi.biz_ext?.rating || poi.rating || "",
-        cost: poi.biz_ext?.cost || "",
-        openTime: poi.biz_ext?.open_time || "",
-        photos,
-        type: poi.type ?? "",
-        location: poi.location ?? "",
-      };
-    });
-  } catch {
-    return [];
-  }
 }
 
 /** 高德 주변 검색 (반경 m, location = 경도,위도) */
@@ -448,46 +394,83 @@ async function fetchBlogContent(url: string): Promise<string> {
   }
 }
 
-/** 한국어 지역 표기 → 高德/번역용 중국어 (청양/성양·城阳 등) */
-const DISTRICT_KO_TO_ZH: Array<[string, string]> = [
-  ["청양|성양", "城阳"],
-  ["청양구|성양구", "城阳区"],
-  ["시난|스난|시남", "市南"],
-  ["시난구|시남구", "市南区"],
-  ["시베이|시북", "市北"],
-  ["시베이구|시북구", "市北区"],
-  ["황다오|황도", "黄岛"],
-  ["황다오구|황도구", "黄岛区"],
-  ["라오산|로샨|로산", "崂山"],
-  ["라오산구|로샨구|로산구", "崂山区"],
-  ["리창|이창", "李沧"],
-  ["리창구|이창구", "李沧区"],
-  ["즉묵|지묵", "即墨"],
-  ["즉묵구|지묵구", "即墨区"],
-  ["자오저우|교주", "胶州"],
-  ["자오저우시|교주시", "胶州市"],
-];
+/** 한국어 지역 표기 → 高德/번역용 중국어 (키별 개별 치환) */
+const DISTRICT_KO_TO_ZH: Record<string, string> = {
+  청양: "城阳",
+  성양: "城阳",
+  청양구: "城阳区",
+  성양구: "城阳区",
+  시난: "市南",
+  스난: "市南",
+  시남: "市南",
+  시난구: "市南区",
+  시남구: "市南区",
+  시베이: "市北",
+  시북: "市北",
+  시베이구: "市北区",
+  시북구: "市北区",
+  황다오: "黄岛",
+  황도: "黄岛",
+  황다오구: "黄岛区",
+  황도구: "黄岛区",
+  라오산: "崂山",
+  로산: "崂山",
+  라오산구: "崂山区",
+  로산구: "崂山区",
+  리창: "李沧",
+  이창: "李沧",
+  리창구: "李沧区",
+  이창구: "李沧区",
+  즉묵: "即墨",
+  지묵: "即墨",
+  즉묵구: "即墨区",
+  지묵구: "即墨区",
+  자오저우: "胶州",
+  교주: "胶州",
+  자오저우시: "胶州市",
+  교주시: "胶州市",
+};
 
 function applyDistrictMapping(text: string): string {
   let processed = text;
-  for (const [pattern, zh] of DISTRICT_KO_TO_ZH) {
-    processed = processed.replace(new RegExp(pattern, "g"), zh);
+  const keys = Object.keys(DISTRICT_KO_TO_ZH).sort((a, b) => b.length - a.length);
+  for (const k of keys) {
+    const zh = DISTRICT_KO_TO_ZH[k];
+    if (!zh) continue;
+    processed = processed.split(k).join(zh);
   }
   return processed;
 }
 
-type AmapPoi = {
-  name: string;
-  address: string;
-  tel: string;
-  rating: string;
-  cost: string;
-  openTime: string;
-  photos: string[];
-  type: string;
-  location: string;
-  _score?: number;
+const CATEGORY_ZH_KEYWORDS: Record<string, string[]> = {
+  맛집: ["餐厅", "美食", "饭店"],
+  고기: ["烤肉", "烧烤", "肉"],
+  치킨: ["炸鸡", "韩式炸鸡"],
+  국밥: ["汤饭", "米饭"],
+  카페: ["咖啡", "咖啡厅", "甜品"],
+  병원: ["医院", "诊所", "医疗"],
+  약국: ["药店", "药房"],
+  마트: ["超市", "商店"],
+  미용: ["美容", "美发", "理发"],
+  학원: ["培训", "学校", "教育"],
 };
+
+function detectDistrictZhInQuery(text: string): string {
+  const values = Array.from(new Set(Object.values(DISTRICT_KO_TO_ZH))).sort((a, b) => b.length - a.length);
+  for (const v of values) {
+    if (text.includes(v)) return v;
+  }
+  return "";
+}
+
+function detectExtraCategoryZh(text: string): string[] {
+  for (const [ko, zhList] of Object.entries(CATEGORY_ZH_KEYWORDS)) {
+    if (text.includes(ko)) return zhList;
+  }
+  return [];
+}
+
+type AmapPoi = AmapPoiItem;
 
 function calculateShopScore(
   poi: AmapPoi,
@@ -808,6 +791,8 @@ export async function POST(request: Request) {
           sendStatus("✅ 캐시에서 데이터를 찾았어요!");
         }
 
+        const amapOpts = { sortrule: 2 as const, offset: 20 as const };
+
         if (!usedCache) {
         const matchedShops = findAllShops(processedMessage, shopDictData);
         if (matchedShops.length > 0 && matchedShops[0].zh) {
@@ -830,7 +815,7 @@ export async function POST(request: Request) {
                     {
                       role: "user",
                       content:
-                        "아래 한국어를 중국어로 번역해. 번역만 출력해. 다른 말 하지마. 장소명, 기관명, 카테고리 등을 정확히 번역해.\n\n" +
+                        "아래 한국어를 중국어로 번역해. 번역만 출력해. 다른 말 하지마. 장소명, 기관명, 카테고리 등을 정확히 번역해. '맛집'은 '美食'으로, '고기집'은 '烤肉'으로, '병원'은 '医院'으로 번역해. 지역명은 정확한 중국어 행정구역명으로 번역해.\n\n" +
                         processedMessage,
                     },
                   ],
@@ -852,12 +837,54 @@ export async function POST(request: Request) {
 
         console.log("=== 검색 키워드: 高德/百度=" + searchQueryZh + ", 네이버=" + processedMessage + " ===");
 
+        const districtZh = detectDistrictZhInQuery(searchQueryZh);
+        const baiduQuery =
+          districtZh && !searchQueryZh.includes(districtZh)
+            ? `${districtZh} ${searchQueryZh}`.trim()
+            : searchQueryZh;
+
         const amapKeywordsFromDict = findCategories(searchQueryZh);
+        const baseCategoryWords = amapKeywordsFromDict.length > 0 ? amapKeywordsFromDict : ["美食"];
+        const extraCategoryZh = detectExtraCategoryZh(processedMessage + searchQueryZh);
 
-        const amapKeywords: string[] =
-          amapKeywordsFromDict.length > 0 ? amapKeywordsFromDict : ["美食"];
+        const amapKeywordList: string[] = [];
+        const pushAmapKw = (kw: string) => {
+          const t = kw.trim();
+          if (!t) return;
+          if (!amapKeywordList.includes(t)) amapKeywordList.push(t);
+        };
 
-        const baiduQuery = searchQueryZh;
+        if (searchQueryZh.trim()) {
+          const q =
+            districtZh && !searchQueryZh.includes(districtZh)
+              ? `${districtZh} ${searchQueryZh}`.trim()
+              : searchQueryZh.trim();
+          pushAmapKw(q);
+        }
+
+        for (const kw of baseCategoryWords) {
+          const q =
+            districtZh && !kw.includes(districtZh) ? `${districtZh} ${kw}`.trim() : kw;
+          pushAmapKw(q);
+        }
+
+        for (const ek of extraCategoryZh.slice(0, 2)) {
+          pushAmapKw(districtZh ? `${districtZh} ${ek}`.trim() : ek);
+        }
+
+        if (
+          processedMessage.includes("맛집") ||
+          searchQueryZh.includes("美食") ||
+          searchQueryZh.includes("餐")
+        ) {
+          pushAmapKw(districtZh ? `${districtZh} 美食`.trim() : "美食");
+        }
+
+        if (amapKeywordList.length === 0) {
+          pushAmapKw(districtZh ? `${districtZh} 美食`.trim() : "美食");
+        }
+
+        const amapKeywords = amapKeywordList.slice(0, 10);
 
         const newsKeywords = [
           "뉴스",
@@ -876,12 +903,45 @@ export async function POST(request: Request) {
         ];
         needsNews = newsKeywords.some((k) => userMessage.includes(k));
 
+        const mainQueryForAmap = (() => {
+          let q = searchQueryZh.trim();
+          if (!q) return "美食";
+          if (q.includes("餐厅") && !q.includes("美食")) q = q.replace(/餐厅/g, "美食");
+          return q;
+        })();
+
+        const mainAmapResults = await amapSearch(mainQueryForAmap, "青岛", amapOpts);
+        if (mainAmapResults.length < 10) {
+          const categoryMapZh: Record<string, string[]> = {
+            美食: ["餐厅", "饭店", "小吃"],
+            烤肉: ["烧烤", "韩式烤肉", "肉"],
+            炸鸡: ["韩式炸鸡", "鸡排"],
+            汤饭: ["米饭", "韩式汤饭", "汤"],
+            咖啡: ["咖啡厅", "甜品", "奶茶"],
+            医院: ["诊所", "医疗", "门诊"],
+            超市: ["商店", "便利店", "韩国超市"],
+          };
+          for (const [key, alternatives] of Object.entries(categoryMapZh)) {
+            if (searchQueryZh.includes(key)) {
+              for (const alt of alternatives.slice(0, 2)) {
+                const altKeyword = searchQueryZh.replace(key, alt);
+                const altResults = await amapSearch(altKeyword, "青岛", {
+                  sortrule: 2,
+                  offset: 10,
+                });
+                mainAmapResults.push(...altResults);
+              }
+              break;
+            }
+          }
+        }
+
         sendStatus("🗺️ 高德地图에서 검색중...");
         const amapCount = amapKeywords.length;
         const parallelBundle = await Promise.all([
           crawlChinazoa(processedMessage),
           fetchBababangDbContext(processedMessage),
-          ...amapKeywords.map((kw) => amapSearch(kw)),
+          ...amapKeywords.map((kw) => amapSearch(kw, "青岛", amapOpts)),
           needsNews ? searchGoogleNews(userMessage) : Promise.resolve([] as string[]),
         ]);
         chinazoaData = parallelBundle[0] as string[];
@@ -895,14 +955,14 @@ export async function POST(request: Request) {
           const shopSearchPromises = matchedShops.slice(0, 5).map((shop) => {
             if (!shop.zh) return Promise.resolve([] as AmapPoi[]);
             const searchName = shop.zh.replace(/[\(\)（）]/g, " ").trim();
-            return amapSearch(searchName, "青岛").catch(() => [] as AmapPoi[]);
+            return amapSearch(searchName, "青岛", amapOpts).catch(() => [] as AmapPoi[]);
           });
           const results = await Promise.all(shopSearchPromises);
           shopAmapResults = results.flat();
           console.log("=== shopDict → 高德 추가 검색: " + shopAmapResults.length + "개 ===");
         }
 
-        let allAmapPois = (categoryAmapResults as Array<Array<AmapPoi>>).flat();
+        let allAmapPois = [...mainAmapResults, ...(categoryAmapResults as Array<Array<AmapPoi>>).flat()];
         if (userLocation) {
           const aroundBatches = await Promise.all(
             amapKeywords.map((kw) =>
@@ -913,6 +973,35 @@ export async function POST(request: Request) {
         }
         uniquePois = allAmapPois.filter(
           (poi, idx, arr) => arr.findIndex((p) => p.name === poi.name) === idx
+        );
+
+        const seenAmapNames = new Set<string>();
+        for (const poi of uniquePois) {
+          const n = poi.name?.split("(")[0]?.split("（")[0]?.trim() || "";
+          if (n) seenAmapNames.add(n);
+        }
+
+        if (uniquePois.length < 5 && searchQueryZh.trim()) {
+          try {
+            const broadQuery = searchQueryZh.replace(/[区市]/g, "").trim();
+            if (broadQuery) {
+              const broadResults = await amapSearch(broadQuery, "青岛", amapOpts);
+              for (const poi of broadResults) {
+                const name = poi.name?.split("(")[0]?.split("（")[0]?.trim() || "";
+                if (name && !seenAmapNames.has(name)) {
+                  seenAmapNames.add(name);
+                  uniquePois.push(poi);
+                }
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+          console.log("=== 추가 검색 후 총 " + uniquePois.length + "개 ===");
+        }
+
+        console.log(
+          "=== 高德 " + amapKeywords.length + "개 키워드로 " + uniquePois.length + "개 결과 ==="
         );
 
         sendStatus("🔍 大众点评 리뷰 검색중...");
@@ -1455,7 +1544,7 @@ ${searchContext}`
           if (!matched) {
             try {
               const nameForSearch = shortName || zhName;
-              const solo = await amapSearch(nameForSearch, "青岛");
+              const solo = await amapSearch(nameForSearch, "青岛", amapOpts);
               if (solo?.length) matched = solo[0];
             } catch {
               /* ignore */
@@ -1504,7 +1593,7 @@ ${searchContext}`
           const extraSearches = needInfo.map(async (shop) => {
             try {
               const zhName = shop.name.split("(")[0].split("（")[0].trim();
-              const results = await amapSearch(zhName, "青岛");
+              const results = await amapSearch(zhName, "青岛", amapOpts);
               if (results && results.length > 0) {
                 const poi = results[0];
                 shop.address = poi.address || "";

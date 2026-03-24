@@ -17,6 +17,8 @@ interface AppState {
   // 네비게이션
   activeTab: TabKey;
   setActiveTab: (tab: TabKey) => void;
+  /** 관리자 탭 표시 중 — 하단 네비 숨김 */
+  adminOpen: boolean;
 
   // 언어
   lang: Lang;
@@ -167,7 +169,8 @@ function initialLang(): Lang {
 
 export const useStore = create<AppState>((set, get) => ({
   activeTab: "home",
-  setActiveTab: (tab) => set({ activeTab: tab }),
+  adminOpen: false,
+  setActiveTab: (tab) => set({ activeTab: tab, adminOpen: tab === "admin" }),
 
   lang: initialLang(),
   setLang: (lang) => {

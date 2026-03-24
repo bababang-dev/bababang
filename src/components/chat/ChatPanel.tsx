@@ -466,6 +466,7 @@ export function ChatPanel() {
   const [voiceLang, setVoiceLang] = useState<"ko" | "zh">("ko");
   const [voiceResult, setVoiceResult] = useState({
     original: "",
+    corrected: "",
     translated: "",
     isInterim: false,
   });
@@ -565,10 +566,18 @@ export function ChatPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: trimmed, targetLang }),
       });
-      const data = (await res.json()) as { translation?: string };
+      const data = (await res.json()) as {
+        translation?: string;
+        corrected?: string;
+        wasChanged?: boolean;
+      };
       const translated = data.translation ?? "";
+      const correctedRaw = typeof data.corrected === "string" ? data.corrected.trim() : "";
+      const showCorrected =
+        Boolean(data.wasChanged) && correctedRaw.length > 0 && correctedRaw !== trimmed;
       setVoiceResult({
         original: trimmed,
+        corrected: showCorrected ? correctedRaw : "",
         translated,
         isInterim: false,
       });
@@ -582,6 +591,7 @@ export function ChatPanel() {
       setVoiceResult((prev) => ({
         ...prev,
         original: trimmed,
+        corrected: "",
         translated: "번역 실패",
         isInterim: false,
       }));
@@ -668,6 +678,7 @@ export function ChatPanel() {
       voiceCombinedRef.current = combined;
       setVoiceResult({
         original: combined || voiceCombinedRef.current,
+        corrected: "",
         translated: "",
         isInterim: interim.length > 0 && !allFinal,
       });
@@ -994,14 +1005,6 @@ export function ChatPanel() {
               >
                 <X className="w-6 h-6 text-white" strokeWidth={2} />
               </motion.button>
-              <button
-                type="button"
-                onClick={() => setVoiceTranslateMode(true)}
-                className="shrink-0 rounded-lg bg-white/10 px-2 py-1.5 text-[11px] text-white/90 hover:bg-white/15"
-                title={lang === "zh" ? "语音翻译" : "음성번역"}
-              >
-                🎙️
-              </button>
               <div className="flex-1 flex flex-col items-center justify-center min-w-0">
                 <p className="font-outfit font-semibold text-white text-sm sm:text-base truncate w-full text-center">
                   {t.aiName}
@@ -1525,6 +1528,26 @@ export function ChatPanel() {
               </label>
               <motion.button
                 type="button"
+                onClick={() => setVoiceTranslateMode(true)}
+                className="shrink-0 rounded-xl p-2 flex items-center justify-center text-xl leading-none"
+                style={{ background: "rgba(255,255,255,0.08)" }}
+                whileTap={{ scale: 0.95 }}
+                title={lang === "zh" ? "语音翻译" : "음성번역"}
+                aria-label={lang === "zh" ? "语音翻译" : "음성번역"}
+              >
+                🎙️
+              </motion.button>
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
+                placeholder={t.placeholder}
+                className="min-w-0 flex-1 bg-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-accent/50"
+                style={{ fontSize: "16px", flex: 1, minWidth: 0 }}
+              />
+              <motion.button
+                type="button"
                 onClick={() => startVoiceInput()}
                 className="shrink-0 p-2 rounded-xl flex items-center justify-center"
                 style={{
@@ -1538,15 +1561,6 @@ export function ChatPanel() {
               >
                 <span className="text-xl leading-none">{isVoiceChatListening ? "⏹️" : "🎤"}</span>
               </motion.button>
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
-                placeholder={t.placeholder}
-                className="min-w-0 flex-1 bg-white/10 rounded-xl px-4 py-3 text-base text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-accent/50"
-                style={{ fontSize: "16px", flex: 1, minWidth: 0 }}
-              />
               <motion.button
                 type="button"
                 onClick={() => sendMessage(input)}
@@ -1653,15 +1667,33 @@ export function ChatPanel() {
                     </div>
                     <div
                       style={{
-                        fontSize: 18,
+                        fontSize: 14,
                         color: voiceResult.isInterim
-                          ? "rgba(255,255,255,0.4)"
-                          : "white",
-                        fontWeight: voiceResult.isInterim ? 400 : 600,
+                          ? "rgba(255,255,255,0.35)"
+                          : "rgba(255,255,255,0.45)",
+                        fontWeight: 400,
                       }}
                     >
                       {voiceResult.original || "마이크를 누르고 말해보세요"}
                     </div>
+                    {voiceResult.corrected &&
+                    voiceResult.corrected !== voiceResult.original &&
+                    !voiceResult.isInterim ? (
+                      <div className="mt-2 flex flex-col gap-1">
+                        <span
+                          className="inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px]"
+                          style={{
+                            background: "rgba(108,92,231,0.35)",
+                            color: "#e9d5ff",
+                          }}
+                        >
+                          ✨ 교정됨
+                        </span>
+                        <span style={{ fontSize: 15, color: "white", fontWeight: 600 }}>
+                          {voiceResult.corrected}
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     type="button"

@@ -20,26 +20,22 @@ export function MapActionSheet() {
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
-          key="map-action-sheet"
-          className="fixed inset-0 z-[95] flex flex-col justify-end pointer-events-none"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
+        <>
           <motion.button
+            key="map-action-overlay"
             type="button"
             aria-label="닫기"
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm pointer-events-auto"
+            className="fixed inset-0 z-[1099] bg-[rgba(0,0,0,0.5)]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => closeMapActionSheet()}
           />
           <motion.div
+            key="map-action-sheet"
             role="dialog"
             aria-modal="true"
-            className="relative z-10 w-full max-w-[430px] mx-auto rounded-t-2xl border border-white/10 px-4 pt-3 pointer-events-auto"
+            className="fixed bottom-0 left-0 right-0 z-[1100] mx-auto w-full max-w-[430px] rounded-t-2xl border border-white/10 px-4 pt-3"
             style={{
               paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
               background: "rgba(18, 18, 24, 0.85)",
@@ -91,7 +87,7 @@ export function MapActionSheet() {
               닫기
             </button>
           </motion.div>
-        </motion.div>
+        </>
       )}
     </AnimatePresence>
   );
