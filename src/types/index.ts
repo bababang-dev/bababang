@@ -73,6 +73,8 @@ export interface User {
   nameZh: string;
   email: string;
   avatar: string;
+  /** 로그인 폰번호 (마스터 판별 등) */
+  phone?: string | null;
   plan: "free" | "premium";
   tokens: number;
   joined: string;

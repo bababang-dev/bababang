@@ -7,6 +7,7 @@ export type LoginUserPayload = {
   id: number;
   nickname: string;
   avatar: string;
+  phone?: string | null;
   plan: "free" | "premium";
   tokens: number;
   language: Lang;
@@ -292,6 +293,7 @@ export const useStore = create<AppState>((set, get) => ({
         nameZh: user.nickname,
         email: "",
         avatar: user.avatar,
+        phone: user.phone ?? null,
         plan: user.plan,
         tokens: user.tokens,
         joined,

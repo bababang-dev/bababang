@@ -64,7 +64,7 @@ function bumpDailyAiCount() {
   localStorage.setItem("bababang-ai-count", String(c + 1));
 }
 
-const MASTER_IDS = ["1"];
+const MASTER_PHONES = ["18514747772"];
 
 function getFreeAiLimit(): number {
   if (typeof window === "undefined") return 5;
@@ -369,8 +369,9 @@ export function ChatPanel() {
   const t = i18n[lang].chat;
   const tokens = user?.tokens ?? 0;
   const isFree = user?.plan === "free";
-  const isMaster =
-    currentUserId != null && MASTER_IDS.includes(String(currentUserId));
+  const isMaster = Boolean(
+    user && MASTER_PHONES.includes(String(user.phone))
+  );
   const atDailyLimit = isFree && !isMaster && !canAskQuestion();
 
   const toastThanksGood =

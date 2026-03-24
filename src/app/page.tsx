@@ -72,6 +72,7 @@ export default function MainPage() {
               id: number;
               nickname: string;
               avatar: string;
+              phone?: string | null;
               plan: "free" | "premium";
               tokens: number;
               language: string;
@@ -82,6 +83,7 @@ export default function MainPage() {
                 id: data.user.id,
                 nickname: data.user.nickname,
                 avatar: data.user.avatar,
+                phone: data.user.phone ?? null,
                 plan: data.user.plan,
                 tokens: data.user.tokens,
                 language: data.user.language === "zh" ? "zh" : "ko",
