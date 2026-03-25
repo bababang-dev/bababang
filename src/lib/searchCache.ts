@@ -23,6 +23,13 @@ function reviewTrustOk(row: RowDataPacket): boolean {
   return Number.isFinite(n) && n >= 20;
 }
 
+/** undefined·null·빈 문자열 → SQL NULL */
+function nullIfEmptyStr(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+}
+
 // 쿼리 해시 생성
 export function hashQuery(query: string): string {
   const normalized = query.trim().toLowerCase().replace(/\s+/g, " ");
@@ -114,13 +121,13 @@ export async function cacheShop(
       await pool.query(
         "UPDATE shop_cache SET address=?, phone=?, rating=?, cost=?, open_time=?, lat=?, lng=?, cached_at=NOW() WHERE id=?",
         [
-          shop.address ?? null,
-          shop.phone ?? shop.tel ?? null,
+          nullIfEmptyStr(shop.address),
+          nullIfEmptyStr(shop.phone ?? shop.tel),
           ratingVal,
-          shop.cost ?? null,
-          shop.open_time ?? shop.openTime ?? null,
-          shop.lat ?? null,
-          shop.lng ?? null,
+          nullIfEmptyStr(shop.cost),
+          nullIfEmptyStr(shop.open_time ?? shop.openTime),
+          nullIfEmptyStr(shop.lat),
+          nullIfEmptyStr(shop.lng),
           ex[0].id,
         ]
       );
@@ -136,23 +143,26 @@ export async function cacheShop(
       }
     }
 
+    const kw = keyword.trim().slice(0, 200);
+    const searchKeywordVal = kw === "" ? null : kw;
+
     const [result] = await pool.query(
       `INSERT INTO shop_cache (name_zh, name_ko, address, phone, rating, cost, open_time, category, district, lat, lng, photo_urls, source, search_keyword) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         nameZh,
-        shop.name_ko ?? shop.koreanName ?? null,
-        shop.address ?? null,
-        shop.phone ?? shop.tel ?? null,
+        nullIfEmptyStr(shop.name_ko ?? shop.koreanName),
+        nullIfEmptyStr(shop.address),
+        nullIfEmptyStr(shop.phone ?? shop.tel),
         ratingVal,
-        shop.cost ?? null,
-        shop.open_time ?? shop.openTime ?? null,
-        shop.category ?? null,
-        shop.district ?? null,
-        shop.lat ?? null,
-        shop.lng ?? null,
-        photoUrls,
+        nullIfEmptyStr(shop.cost),
+        nullIfEmptyStr(shop.open_time ?? shop.openTime),
+        nullIfEmptyStr(shop.category),
+        nullIfEmptyStr(shop.district),
+        nullIfEmptyStr(shop.lat),
+        nullIfEmptyStr(shop.lng),
+        photoUrls ?? null,
         source,
-        keyword.slice(0, 200),
+        searchKeywordVal,
       ]
     );
     const header = result as ResultSetHeader;
