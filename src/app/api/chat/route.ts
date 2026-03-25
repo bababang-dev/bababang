@@ -155,13 +155,24 @@ async function searchBaiduMulti(
           encodeURIComponent(q) +
           "&api_key=" +
           apiKey;
+        console.log("=== SerpAPI 요청 URL: " + serpUrl + " ===");
         const res = await fetch(serpUrl, { signal: AbortSignal.timeout(8000) });
+        console.log("=== SerpAPI 응답 상태: " + res.status + " ===");
         if (!res.ok) return;
         const data = (await res.json()) as {
           organic_results?: Array<{ title?: string; snippet?: string; link?: string }>;
+          error?: unknown;
+          search_information?: unknown;
         };
 
-        if (data.organic_results) {
+        if (!data.organic_results) {
+          console.log("=== SerpAPI 응답 키: " + Object.keys(data as object).join(",") + " ===");
+          console.log(
+            "=== SerpAPI 에러: " +
+              JSON.stringify(data.error || data.search_information || "").slice(0, 200) +
+              " ==="
+          );
+        } else {
           for (const item of data.organic_results.slice(0, 5)) {
             const snippet = (item.snippet || "").slice(0, 300);
             const title = item.title || "";
@@ -201,7 +212,7 @@ async function searchNaver(
   if (!apiKey) return [];
 
   try {
-    const url = `https://serpapi.com/search.json?engine=naver&query=${encodeURIComponent(query + " 칭다오")}&api_key=${apiKey}`;
+    const url = `https://serpapi.com/search.json?engine=naver&query=${encodeURIComponent(query)}&api_key=${apiKey}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return [];
 
@@ -512,12 +523,36 @@ async function perplexitySearch(
 
   // 3) DB review_cache
   try {
-    const likePart = searchQueryZh.slice(0, 10);
+    const searchTerms = searchQueryZh
+      .replace(/区/g, "")
+      .replace(/市/g, "")
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
+    const userTerms = userMessage
+      .replace(/[을를이가에서으로해줘알려줘추천]/g, "")
+      .split(/\s+/)
+      .filter((t) => t.length >= 2);
+    const allTerms = Array.from(new Set([...searchTerms, ...userTerms]));
+    console.log("=== DB 리뷰 검색 키워드: " + allTerms.join(", ") + " ===");
+
+    let whereClause = allTerms
+      .map(() => "(review_text LIKE ? OR shop_name LIKE ?)")
+      .join(" OR ");
+    let params: string[] = allTerms.flatMap((t) => ["%" + t + "%", "%" + t + "%"]);
+
+    if (allTerms.length === 0) {
+      whereClause = "1=1";
+      params = [];
+    }
+
     const [dbReviewsRows] = await pool.query(
-      "SELECT shop_name, review_text, source FROM review_cache WHERE (review_text LIKE ? OR shop_name LIKE ?) ORDER BY cached_at DESC LIMIT 20",
-      ["%" + likePart + "%", "%" + likePart + "%"]
+      "SELECT shop_name, review_text, source FROM review_cache WHERE " +
+        whereClause +
+        " ORDER BY cached_at DESC LIMIT 20",
+      params
     );
     const dbReviews = dbReviewsRows as RowDataPacket[];
+    console.log("=== DB 리뷰 " + (Array.isArray(dbReviews) ? dbReviews.length : 0) + "개 검색됨 ===");
     if (Array.isArray(dbReviews) && dbReviews.length > 0) {
       searchContext += "\n=== BabaBang 축적 데이터 (小红书/네이버 등) ===\n";
       for (const r of dbReviews) {
@@ -532,25 +567,79 @@ async function perplexitySearch(
           "\n";
       }
       totalSources += dbReviews.length;
-      console.log("=== DB 리뷰 " + dbReviews.length + "개 검색됨 ===");
-    } else {
-      console.log("=== DB 리뷰 0개 ===");
     }
   } catch (e) {
     console.log("=== DB 리뷰 검색 실패 ===", e);
   }
 
   // 4) 네이버
+  let naverKeyword1 = userMessage;
+  if (/[\u4e00-\u9fff]/.test(naverKeyword1)) {
+    naverKeyword1 = naverKeyword1
+      .replace(/城阳/g, "청양")
+      .replace(/青岛/g, "칭다오")
+      .replace(/市南/g, "시난")
+      .replace(/市北/g, "시베이")
+      .replace(/黄岛/g, "황다오")
+      .replace(/崂山/g, "라오산")
+      .replace(/李沧/g, "리창")
+      .replace(/即墨/g, "즉묵");
+  }
+
+  naverKeyword1 = naverKeyword1
+    .replace(/[에서으로해줘알려줘추천좀요]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!naverKeyword1.includes("중국")) {
+    naverKeyword1 = "중국 " + naverKeyword1;
+  }
+
+  if (!naverKeyword1.includes("칭다오") && !naverKeyword1.includes("청도")) {
+    naverKeyword1 = naverKeyword1.replace("중국 ", "중국 칭다오 ");
+  }
+
+  const naverKeyword2 = naverKeyword1
+    .replace(/칭다오/g, "청도")
+    .replace(/청양/g, "성양")
+    .replace(/시난/g, "시남")
+    .replace(/시베이/g, "시북")
+    .replace(/황다오/g, "황도")
+    .replace(/라오산/g, "노산")
+    .replace(/리창/g, "이창")
+    .replace(/즉묵/g, "지묵");
+
+  console.log("=== 네이버 검색1: " + naverKeyword1 + " ===");
+  console.log("=== 네이버 검색2: " + naverKeyword2 + " ===");
+
   console.log("=== 네이버 검색 시작 ===");
   sendStatus("🇰🇷 네이버 블로그 검색중...");
-  const naverRaw = await searchNaver(userMessage);
-  const naverResults = naverRaw.map((item) => ({
+  const naver1 = await searchNaver(naverKeyword1);
+  const naver2 = await searchNaver(naverKeyword2);
+  const allNaverResults = [...naver1, ...naver2];
+
+  const seenUrls = new Set<string>();
+  const mergedNaver = allNaverResults.filter((item) => {
+    if (seenUrls.has(item.link)) return false;
+    seenUrls.add(item.link);
+    return true;
+  });
+
+  const naverResults = mergedNaver.map((item) => ({
     title: stripHtml(item.title),
     desc: stripHtml(item.desc),
     source: item.source,
     link: item.link,
   }));
-  console.log("=== 네이버 검색 완료: " + naverResults.length + "개 ===");
+  console.log(
+    "=== 네이버 검색 완료: " +
+      naverResults.length +
+      "개 (검색1: " +
+      naver1.length +
+      "개, 검색2: " +
+      naver2.length +
+      "개) ==="
+  );
   if (naverResults.length > 0) {
     searchContext += "\n=== 한국인 후기 ===\n";
     for (const item of naverResults.slice(0, 10)) {
