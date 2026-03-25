@@ -6,8 +6,8 @@ import { useStore } from "@/stores/useStore";
 
 const FAB_SIZE = 56;
 const GAP = 12;
-/** 채팅 FAB 바로 위: base + 채팅 높이 + gap */
 const INTERPRET_BOTTOM = `calc(60px + env(safe-area-inset-bottom, 0px) + 12px + ${56 + GAP}px)`;
+const FAB_GRADIENT = "linear-gradient(135deg, #6c5ce7, #a78bfa)";
 
 export function FloatingInterpretButton() {
   const setInterpreterOpen = useStore((s) => s.setInterpreterOpen);
@@ -33,8 +33,8 @@ export function FloatingInterpretButton() {
           right: 16,
           width: FAB_SIZE,
           height: FAB_SIZE,
-          background: "#ffffff",
-          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.15)",
+          background: FAB_GRADIENT,
+          boxShadow: "0 4px 24px rgba(108, 92, 231, 0.45)",
         }}
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -44,7 +44,7 @@ export function FloatingInterpretButton() {
         aria-label="실시간 번역"
         title="실시간 번역"
       >
-        <Mic className="w-6 h-6 text-[#0a0a0f]" strokeWidth={2.2} />
+        <Mic className="w-6 h-6 text-white" strokeWidth={2.2} />
       </motion.button>
     </div>
   );

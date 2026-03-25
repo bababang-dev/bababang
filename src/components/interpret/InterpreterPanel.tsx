@@ -20,6 +20,41 @@ import { useModalBodyLock } from "@/lib/useModalBodyLock";
 
 const SESSIONS_KEY = "bababang-interpret-sessions-v1";
 
+const INTERPRET_STYLE_ID = "interpret-panel-keyframes";
+
+const INTERPRET_CSS = `
+@keyframes interpret-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.45); }
+  70% { box-shadow: 0 0 0 20px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+@keyframes interpret-listening-dots {
+  0%, 20% { opacity: 0; }
+  50% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes interpret-ripple {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+@keyframes interpret-purple-glow {
+  0%, 100% { box-shadow: inset 0 0 0 2px rgba(108,92,231,0.25); }
+  50% { box-shadow: inset 0 0 0 2px rgba(108,92,231,0.55), 0 0 24px rgba(108,92,231,0.2); }
+}
+.interpret-mic-ripples span {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid rgba(239,68,68,0.35);
+  animation: interpret-ripple 1.5s ease-out infinite;
+}
+.interpret-mic-ripples span:nth-child(2) { animation-delay: 0.4s; }
+.interpret-mic-ripples span:nth-child(3) { animation-delay: 0.8s; }
+.interpret-dot-1 { animation: interpret-listening-dots 1.2s infinite; animation-delay: 0s; }
+.interpret-dot-2 { animation: interpret-listening-dots 1.2s infinite; animation-delay: 0.2s; }
+.interpret-dot-3 { animation: interpret-listening-dots 1.2s infinite; animation-delay: 0.4s; }
+`;
+
 export interface InterpretEntry {
   id: string;
   speaker: "me" | "them";
@@ -36,6 +71,8 @@ type PastSession = {
   theirLang: string;
   myLang: string;
 };
+
+type FlowStatus = "idle" | "listening" | "translating" | "speaking";
 
 const LANG_SHEET: { code: string; flag: string; native: string; english: string }[] = [
   { code: "en", flag: "🇺🇸", native: "English", english: "English" },
@@ -107,6 +144,34 @@ function saveSessions(sessions: PastSession[]) {
   }
 }
 
+function ensureStyleInjected() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(INTERPRET_STYLE_ID)) return;
+  const el = document.createElement("style");
+  el.id = INTERPRET_STYLE_ID;
+  el.textContent = INTERPRET_CSS;
+  document.head.appendChild(el);
+}
+
+async function requestMicStreamWithAlerts(): Promise<MediaStream | null> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    return stream;
+  } catch (err: unknown) {
+    const e = err as { name?: string; message?: string };
+    if (e.name === "NotAllowedError") {
+      alert(
+        "마이크 권한을 허용해주세요. 브라우저 설정에서 마이크 권한을 확인해주세요."
+      );
+    } else if (e.name === "NotFoundError") {
+      alert("마이크를 찾을 수 없습니다.");
+    } else {
+      alert("마이크 오류: " + (e.message || String(err)));
+    }
+    return null;
+  }
+}
+
 export function InterpreterPanel() {
   const interpreterOpen = useStore((s) => s.interpreterOpen);
   const setInterpreterOpen = useStore((s) => s.setInterpreterOpen);
@@ -121,7 +186,6 @@ export function InterpreterPanel() {
   const [inputMode, setInputMode] = useState<InputMode>("push");
   const [speakerTurn, setSpeakerTurn] = useState<"me" | "them">("me");
   const [history, setHistory] = useState<InterpretEntry[]>([]);
-  const [processing, setProcessing] = useState(false);
   const [interim, setInterim] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [langPicker, setLangPicker] = useState<"their" | "my" | null>(null);
@@ -131,6 +195,9 @@ export function InterpreterPanel() {
   const [fontScale, setFontScale] = useState(1);
   const [ttsOn, setTtsOn] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [flowStatus, setFlowStatus] = useState<FlowStatus>("idle");
+  const [realtimeSessionKey, setRealtimeSessionKey] = useState(0);
+
   const ttsOnRef = useRef(true);
   ttsOnRef.current = ttsOn;
 
@@ -139,6 +206,10 @@ export function InterpreterPanel() {
   const recChunksRef = useRef<Blob[]>([]);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    ensureStyleInjected();
+  }, []);
 
   useEffect(() => {
     if (interpreterOpen) setPastSessions(loadSessions());
@@ -168,30 +239,69 @@ export function InterpreterPanel() {
     setLiveSettingsOpen(false);
     setSetupMenuOpen(false);
     setIsRecording(false);
+    setFlowStatus("idle");
+    setRealtimeSessionKey(0);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = "";
+    }
   }, [setInterpreterOpen]);
 
-  const playTts = useCallback(async (text: string, langCode: string) => {
-    if (!text.trim() || !ttsOnRef.current) return;
-    try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, lang: langCode }),
-      });
-      if (!res.ok) return;
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = url;
-        void audioRef.current.play();
-      } else {
-        const a = new Audio(url);
-        void a.play();
+  const playTtsAudio = useCallback((text: string, langCode: string): Promise<void> => {
+    return new Promise((resolve) => {
+      if (!text.trim() || !ttsOnRef.current) {
+        resolve();
+        return;
       }
-    } catch {
-      /* ignore */
-    }
+      void (async () => {
+        try {
+          const res = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, lang: langCode }),
+          });
+          if (!res.ok) {
+            resolve();
+            return;
+          }
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const el = audioRef.current;
+          if (el) {
+            el.pause();
+            el.src = url;
+            el.onended = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            el.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            void el.play().catch(() => {
+              URL.revokeObjectURL(url);
+              resolve();
+            });
+          } else {
+            const a = new Audio(url);
+            a.onended = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            a.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            void a.play().catch(() => {
+              URL.revokeObjectURL(url);
+              resolve();
+            });
+          }
+        } catch {
+          resolve();
+        }
+      })();
+    });
   }, []);
 
   const previewLangTts = useCallback(
@@ -216,16 +326,24 @@ export function InterpreterPanel() {
         el: "Γεια",
         nl: "Hallo",
       };
-      void playTts(samples[code] || "Hello", code);
+      void playTtsAudio(samples[code] || "Hello", code);
     },
-    [playTts]
+    [playTtsAudio]
   );
 
-  const runPipeline = useCallback(
-    async (original: string, from: string, to: string, speaker: "me" | "them") => {
-      const trimmed = original.trim();
-      if (!trimmed) return;
-      setProcessing(true);
+  const interpretUtterance = useCallback(
+    async (
+      trimmed: string,
+      from: string,
+      to: string,
+      speaker: "me" | "them",
+      onPipelineDone?: () => void
+    ) => {
+      if (!trimmed) {
+        onPipelineDone?.();
+        return;
+      }
+      setFlowStatus("translating");
       setErrorMsg("");
       try {
         const res = await fetch("/api/interpret", {
@@ -257,17 +375,19 @@ export function InterpreterPanel() {
           timestamp: new Date(),
         };
         setHistory((h) => [...h, entry]);
-        void playTts(translated, to);
-      } finally {
-        setProcessing(false);
         setInterim("");
+        setFlowStatus("speaking");
+        await playTtsAudio(translated, to);
+      } finally {
+        setFlowStatus("idle");
+        onPipelineDone?.();
       }
     },
-    [currentUserId, playTts]
+    [currentUserId, playTtsAudio]
   );
 
-  const runPipelineRef = useRef(runPipeline);
-  runPipelineRef.current = runPipeline;
+  const interpretUtteranceRef = useRef(interpretUtterance);
+  interpretUtteranceRef.current = interpretUtterance;
 
   const stopRealtime = useCallback(() => {
     try {
@@ -330,6 +450,8 @@ export function InterpreterPanel() {
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
+    setFlowStatus("listening");
+
     let busy = false;
     rec.onresult = (event) => {
       let finalT = "";
@@ -345,12 +467,26 @@ export function InterpreterPanel() {
       const ft = finalT.trim();
       if (ft && !busy) {
         busy = true;
-        void runPipelineRef.current(ft, from, to, turn).finally(() => {
-          busy = false;
-        });
+        try {
+          rec.stop();
+        } catch {
+          /* ignore */
+        }
+        void interpretUtteranceRef
+          .current(ft, from, to, turn, () => {
+            busy = false;
+            setRealtimeSessionKey((k) => k + 1);
+          })
+          .catch(() => {
+            busy = false;
+            setRealtimeSessionKey((k) => k + 1);
+          });
       }
     };
-    rec.onerror = () => stopRealtime();
+    rec.onerror = () => {
+      setFlowStatus("idle");
+      stopRealtime();
+    };
     rec.onend = () => {
       recognitionRef.current = null;
     };
@@ -359,27 +495,51 @@ export function InterpreterPanel() {
       rec.start();
     } catch {
       setErrorMsg("음성인식을 시작할 수 없어요.");
+      setFlowStatus("idle");
     }
 
     return () => stopRealtime();
-  }, [interpreterOpen, phase, inputMode, speakerTurn, myLang, theirLang, stopRealtime]);
+  }, [
+    interpreterOpen,
+    phase,
+    inputMode,
+    speakerTurn,
+    myLang,
+    theirLang,
+    stopRealtime,
+    realtimeSessionKey,
+  ]);
 
-  const ensureMic = async () => {
-    if (mediaStreamRef.current) return mediaStreamRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaStreamRef.current = stream;
+  const getLiveMicStream = useCallback(async (): Promise<MediaStream | null> => {
+    const cur = mediaStreamRef.current;
+    if (cur) {
+      const live = cur.getAudioTracks().some((t) => t.readyState === "live");
+      if (live) return cur;
+      cur.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+    }
+    const stream = await requestMicStreamWithAlerts();
+    if (stream) mediaStreamRef.current = stream;
     return stream;
-  };
+  }, []);
 
   const startPushRecord = async () => {
-    if (processing || mediaRecorderRef.current) return;
+    if (flowStatus === "translating" || flowStatus === "speaking" || mediaRecorderRef.current) {
+      return;
+    }
     const turn = speakerTurn;
     const my = myLang;
     const their = theirLang;
     setErrorMsg("");
     setIsRecording(true);
+    setFlowStatus("listening");
     try {
-      const stream = await ensureMic();
+      const stream = await getLiveMicStream();
+      if (!stream) {
+        setIsRecording(false);
+        setFlowStatus("idle");
+        return;
+      }
       const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
@@ -393,7 +553,7 @@ export function InterpreterPanel() {
         void (async () => {
           const blob = new Blob(recChunksRef.current, { type: mime });
           if (blob.size < 100) {
-            setProcessing(false);
+            setFlowStatus("idle");
             mediaRecorderRef.current = null;
             return;
           }
@@ -402,17 +562,17 @@ export function InterpreterPanel() {
           const fd = new FormData();
           fd.append("audio", blob, "audio.webm");
           fd.append("lang", from);
-          setProcessing(true);
+          setFlowStatus("translating");
           try {
             const wr = await fetch("/api/whisper", { method: "POST", body: fd });
             const wd = (await wr.json()) as { text?: string; error?: string };
             if (!wr.ok || !wd.text?.trim()) {
               setErrorMsg(wd.error || "음성 인식 실패");
+              setFlowStatus("idle");
               return;
             }
-            await runPipeline(wd.text.trim(), from, to, turn);
+            await interpretUtterance(wd.text.trim(), from, to, turn);
           } finally {
-            setProcessing(false);
             mediaRecorderRef.current = null;
           }
         })();
@@ -421,7 +581,8 @@ export function InterpreterPanel() {
       mr.start();
     } catch {
       setIsRecording(false);
-      setErrorMsg("마이크 권한이 필요해요.");
+      setFlowStatus("idle");
+      setErrorMsg("마이크 오류가 발생했어요.");
     }
   };
 
@@ -455,6 +616,20 @@ export function InterpreterPanel() {
     setPhase("setup");
     setLiveSettingsOpen(false);
     stopRealtime();
+    setFlowStatus("idle");
+    setRealtimeSessionKey((k) => k + 1);
+  };
+
+  const startLiveSession = async () => {
+    const stream = await requestMicStreamWithAlerts();
+    if (!stream) return;
+    if (mediaStreamRef.current && mediaStreamRef.current !== stream) {
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+    }
+    mediaStreamRef.current = stream;
+    setPhase("live");
+    setFlowStatus("idle");
+    setRealtimeSessionKey((k) => k + 1);
   };
 
   const transPx = Math.round(18 * fontScale);
@@ -463,126 +638,211 @@ export function InterpreterPanel() {
   const myEntriesFace = history.filter((e) => e.speaker === "me");
   const theirEntriesFace = history.filter((e) => e.speaker === "them");
 
-  const bubble = (e: InterpretEntry) => {
-    const isMe = e.speaker === "me";
-    return (
+  const busyPipeline = flowStatus === "translating" || flowStatus === "speaking";
+
+  const showListenGlow =
+    isRecording ||
+    (inputMode === "realtime" && phase === "live" && flowStatus === "listening");
+
+  const bubbleOne = (
+    side: "left" | "right",
+    mainText: string,
+    subText: string | null,
+    ttsText: string,
+    ttsLang: string
+  ) => (
+    <div
+      className={`flex w-full mb-2 ${side === "right" ? "justify-end" : "justify-start"}`}
+    >
       <div
-        key={e.id}
-        className={`flex w-full mb-3 ${isMe ? "justify-end" : "justify-start"}`}
+        className="max-w-[85%] rounded-2xl px-3 py-2.5 relative"
+        style={{
+          background: "rgba(255,255,255,0.08)",
+          borderRadius: 16,
+        }}
       >
-        <div
-          className="max-w-[85%] rounded-2xl px-3 py-2.5 relative"
-          style={{
-            background: "rgba(255,255,255,0.08)",
-            borderRadius: 16,
-          }}
+        <button
+          type="button"
+          onClick={() => void playTtsAudio(ttsText, ttsLang)}
+          className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center text-sm opacity-70 hover:opacity-100"
+          aria-label="읽기"
         >
-          <button
-            type="button"
-            onClick={() => void playTts(e.translated, e.toLang)}
-            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center text-sm opacity-70 hover:opacity-100"
-            aria-label="읽기"
-          >
-            🔊
-          </button>
+          🔊
+        </button>
+        {subText ? (
           <p className="text-[12px] text-white/45 pr-8 whitespace-pre-wrap break-words leading-snug">
-            {e.original}
+            {subText}
           </p>
-          <p
-            className="text-white font-medium mt-1 pr-6 whitespace-pre-wrap break-words leading-snug"
-            style={{ fontSize: transPx }}
-          >
-            {e.translated}
-          </p>
+        ) : null}
+        <p
+          className={`text-white font-medium whitespace-pre-wrap break-words leading-snug ${subText ? "mt-1 pr-6" : "pr-8"}`}
+          style={{ fontSize: transPx }}
+        >
+          {mainText}
+        </p>
+      </div>
+    </div>
+  );
+
+  const renderEntryPair = (e: InterpretEntry) => {
+    if (e.speaker === "me") {
+      return (
+        <div key={e.id} className="mb-3 w-full">
+          {bubbleOne("right", e.original, null, e.original, myLang)}
+          {bubbleOne("left", e.translated, null, e.translated, theirLang)}
         </div>
+      );
+    }
+    return (
+      <div key={e.id} className="mb-3 w-full">
+        {bubbleOne("left", e.original, null, e.original, theirLang)}
+        {bubbleOne("right", e.translated, null, e.translated, myLang)}
       </div>
     );
   };
 
+  const statusLine = (
+    <div
+      style={{ textAlign: "center", color: "rgba(255,255,255,0.5)", fontSize: 13 }}
+      className="min-h-[20px]"
+    >
+      {isRecording || (inputMode === "realtime" && flowStatus === "listening") ? (
+        <>
+          🎤 듣고 있어요
+          <span className="inline">
+            <span className="interpret-dot-1">.</span>
+            <span className="interpret-dot-2">.</span>
+            <span className="interpret-dot-3">.</span>
+          </span>
+        </>
+      ) : flowStatus === "translating" ? (
+        <>🔄 번역중...</>
+      ) : flowStatus === "speaking" ? (
+        <>🔊 말하는 중...</>
+      ) : null}
+    </div>
+  );
+
   const controlBar = (
     <div
-      className="shrink-0 flex items-center justify-center gap-3 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-[#0a0a0f]"
+      className="shrink-0 flex flex-col gap-2 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-[#0a0a0f]"
       style={layoutMode === "side" ? { position: "absolute", bottom: 0, left: 0, right: 0 } : {}}
     >
-      <button
-        type="button"
-        onClick={() => setSpeakerTurn((s) => (s === "me" ? "them" : "me"))}
-        className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium"
-        style={{
-          background: "rgba(255,255,255,0.1)",
-          border: "1px solid rgba(255,255,255,0.2)",
-          color: "#fff",
-        }}
-      >
-        <span>{speakerTurn === "me" ? myM.flag : theirM.flag}</span>
-        <span className="text-white/50">/</span>
-        <span>{speakerTurn === "me" ? theirM.flag : myM.flag}</span>
-      </button>
-
-      {inputMode === "push" ? (
-        <div className="flex flex-col items-center gap-1">
-          <motion.button
-            type="button"
-            disabled={processing}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              void startPushRecord();
-            }}
-            onMouseUp={() => stopPushRecord()}
-            onMouseLeave={() => isRecording && stopPushRecord()}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              void startPushRecord();
-            }}
-            onTouchEnd={() => stopPushRecord()}
-            className="relative w-[72px] h-[72px] rounded-full flex flex-col items-center justify-center text-[#0a0a0f] font-semibold text-[11px] disabled:opacity-50"
+      {statusLine}
+      <div className="flex items-center justify-center gap-3">
+        <button
+          type="button"
+          onClick={() => setSpeakerTurn((s) => (s === "me" ? "them" : "me"))}
+          className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium"
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(255,255,255,0.2)",
+            color: "#fff",
+          }}
+        >
+          <span
             style={{
-              background: isRecording ? "#ef4444" : "#ffffff",
-              touchAction: "none",
-              boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+              opacity: speakerTurn === "me" ? 1 : 0.45,
+              transform: speakerTurn === "me" ? "scale(1.15)" : "scale(1)",
+              transition: "0.2s",
             }}
-            animate={
-              isRecording
-                ? { scale: [1, 1.06, 1] }
-                : { scale: 1 }
-            }
-            transition={isRecording ? { repeat: Infinity, duration: 0.9 } : {}}
           >
-            <Mic className="w-7 h-7 mb-0.5" strokeWidth={2.2} />
-            누르기
-          </motion.button>
-        </div>
-      ) : (
-        <div className="w-[72px] h-[72px] rounded-full flex items-center justify-center text-xs text-white/40 border border-white/15">
-          실시간
-        </div>
-      )}
+            {myM.flag}
+          </span>
+          <span className="text-white/50">/</span>
+          <span
+            style={{
+              opacity: speakerTurn === "them" ? 1 : 0.45,
+              transform: speakerTurn === "them" ? "scale(1.15)" : "scale(1)",
+              transition: "0.2s",
+            }}
+          >
+            {theirM.flag}
+          </span>
+        </button>
 
-      <button
-        type="button"
-        onClick={() => setTtsOn((v) => !v)}
-        className="w-11 h-11 rounded-full flex items-center justify-center"
-        style={{
-          background: "#ffffff",
-          color: "#0a0a0f",
-        }}
-        aria-label={ttsOn ? "음성 끄기" : "음성 켜기"}
-      >
-        {ttsOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-      </button>
+        {inputMode === "push" ? (
+          <div className="flex flex-col items-center gap-1 relative">
+            <div className="relative w-[76px] h-[76px] flex items-center justify-center">
+              {isRecording ? (
+                <div className="interpret-mic-ripples pointer-events-none absolute inset-0">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : null}
+              <motion.button
+                type="button"
+                disabled={busyPipeline}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  void startPushRecord();
+                }}
+                onMouseUp={() => stopPushRecord()}
+                onMouseLeave={() => isRecording && stopPushRecord()}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  void startPushRecord();
+                }}
+                onTouchEnd={() => stopPushRecord()}
+                className="relative z-[1] w-[72px] h-[72px] rounded-full flex flex-col items-center justify-center text-white font-semibold text-[11px] disabled:opacity-50"
+                style={{
+                  background: isRecording ? "#ef4444" : "linear-gradient(135deg, #6c5ce7, #a78bfa)",
+                  touchAction: "none",
+                  boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+                  animation: isRecording ? "interpret-pulse 1.5s infinite" : undefined,
+                }}
+              >
+                <Mic className="w-7 h-7 mb-0.5" strokeWidth={2.2} />
+                누르기
+              </motion.button>
+            </div>
+          </div>
+        ) : (
+          <div className="w-[72px] h-[72px] rounded-full flex items-center justify-center text-xs text-white/50 border border-white/15 bg-white/5">
+            실시간
+          </div>
+        )}
 
-      <button
-        type="button"
-        onClick={() => setLiveSettingsOpen(true)}
-        className="w-11 h-11 rounded-full flex items-center justify-center"
-        style={{
-          background: "#ffffff",
-          color: "#0a0a0f",
-        }}
-        aria-label="설정"
-      >
-        <Settings className="w-5 h-5" />
-      </button>
+        <motion.div
+          animate={
+            flowStatus === "speaking"
+              ? { scale: [1, 1.12, 1] }
+              : { scale: 1 }
+          }
+          transition={
+            flowStatus === "speaking"
+              ? { repeat: Infinity, duration: 0.8 }
+              : {}
+          }
+        >
+          <button
+            type="button"
+            onClick={() => setTtsOn((v) => !v)}
+            className="w-11 h-11 rounded-full flex items-center justify-center"
+            style={{
+              background: "#ffffff",
+              color: "#0a0a0f",
+            }}
+            aria-label={ttsOn ? "음성 끄기" : "음성 켜기"}
+          >
+            {ttsOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          </button>
+        </motion.div>
+
+        <button
+          type="button"
+          onClick={() => setLiveSettingsOpen(true)}
+          className="w-11 h-11 rounded-full flex items-center justify-center"
+          style={{
+            background: "#ffffff",
+            color: "#0a0a0f",
+          }}
+          aria-label="설정"
+        >
+          <Settings className="w-5 h-5" />
+        </button>
+      </div>
     </div>
   );
 
@@ -685,7 +945,7 @@ export function InterpreterPanel() {
                 <X className="w-5 h-5 text-white" />
               </button>
             </div>
-            <p className="text-xs text-white/50 mb-2">레이아웃</p>
+            <p className="text-xs text-white mb-2 font-medium">레이아웃</p>
             <div className="flex gap-2 mb-4">
               {(
                 [
@@ -698,7 +958,7 @@ export function InterpreterPanel() {
                   key={k}
                   type="button"
                   onClick={() => setLayoutMode(k)}
-                  className="flex-1 flex flex-col items-center gap-1 py-3 rounded-xl text-xs text-white/90"
+                  className="flex-1 flex flex-col items-center gap-1 py-3 rounded-xl text-xs text-white"
                   style={
                     layoutMode === k
                       ? {
@@ -716,12 +976,12 @@ export function InterpreterPanel() {
                 </button>
               ))}
             </div>
-            <p className="text-xs text-white/50 mb-2">입력 모드</p>
+            <p className="text-xs text-white mb-2 font-medium">입력 모드</p>
             <div className="flex gap-2 mb-4">
               <button
                 type="button"
                 onClick={() => setInputMode("realtime")}
-                className="flex-1 py-3 rounded-xl text-sm text-white/90"
+                className="flex-1 py-3 rounded-xl text-sm text-white"
                 style={
                   inputMode === "realtime"
                     ? {
@@ -739,7 +999,7 @@ export function InterpreterPanel() {
               <button
                 type="button"
                 onClick={() => setInputMode("push")}
-                className="flex-1 py-3 rounded-xl text-sm text-white/90"
+                className="flex-1 py-3 rounded-xl text-sm text-white"
                 style={
                   inputMode === "push"
                     ? {
@@ -755,8 +1015,8 @@ export function InterpreterPanel() {
                 누르고 말하기
               </button>
             </div>
-            <p className="text-xs text-white/50 mb-2">글자 크기</p>
-            <div className="flex items-center gap-3 mb-6">
+            <p className="text-xs text-white mb-2 font-medium">글자 크기</p>
+            <div className="flex items-center gap-3 mb-2">
               <button
                 type="button"
                 onClick={() => setFontScale((f) => Math.max(0.85, f - 0.1))}
@@ -764,7 +1024,7 @@ export function InterpreterPanel() {
               >
                 A-
               </button>
-              <span className="flex-1 text-center text-white/80 text-sm">미리보기</span>
+              <span className="flex-1 text-center text-white text-sm font-medium">미리보기</span>
               <button
                 type="button"
                 onClick={() => setFontScale((f) => Math.min(1.35, f + 0.1))}
@@ -773,7 +1033,10 @@ export function InterpreterPanel() {
                 A+
               </button>
             </div>
-            <p className="text-center mb-2" style={{ fontSize: transPx }}>
+            <p
+              className="text-center mb-4 text-white font-bold"
+              style={{ fontSize: transPx }}
+            >
               번역 텍스트 크기
             </p>
             <button
@@ -794,8 +1057,11 @@ export function InterpreterPanel() {
       {interpreterOpen ? (
         <motion.div
           key="interpreter-panel"
-          className="fixed inset-0 z-[1000] flex flex-col"
-          style={{ background: "#0a0a0f" }}
+          className="fixed inset-0 z-[1000] flex flex-col interpret-panel-root"
+          style={{
+            background: "#0a0a0f",
+            animation: showListenGlow ? "interpret-purple-glow 2.5s ease-in-out infinite" : undefined,
+          }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -986,7 +1252,7 @@ export function InterpreterPanel() {
 
                 <motion.button
                   type="button"
-                  onClick={() => setPhase("live")}
+                  onClick={() => void startLiveSession()}
                   className="w-full mt-8 py-3.5 rounded-xl font-semibold text-[#0a0a0f]"
                   style={{ background: "#ffffff" }}
                   whileTap={{ scale: 0.99 }}
@@ -1038,6 +1304,7 @@ export function InterpreterPanel() {
                   onClick={() => {
                     stopRealtime();
                     setPhase("setup");
+                    setFlowStatus("idle");
                   }}
                   className="p-2 text-white/70 text-lg leading-none"
                   aria-label="뒤로"
@@ -1062,16 +1329,19 @@ export function InterpreterPanel() {
               {layoutMode === "single" && (
                 <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
                   {inputMode === "realtime" && interim ? (
-                    <p className="text-sm text-white/40 text-center mb-2 italic">{interim}</p>
+                    <p className="text-base text-white/70 mb-2 whitespace-pre-wrap break-words border border-white/10 rounded-xl px-3 py-2 bg-white/5">
+                      {interim}
+                      <span className="inline-block w-0.5 h-4 ml-0.5 bg-white/50 animate-pulse align-middle" />
+                    </p>
                   ) : null}
-                  {history.map((e) => bubble(e))}
+                  {history.map((e) => renderEntryPair(e))}
                 </div>
               )}
 
               {layoutMode === "face" && (
                 <div className="flex-1 min-h-0 flex flex-col">
                   <div
-                    className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+                    className="min-h-0 flex-1 overflow-y-auto px-3 py-3 flex flex-col justify-end"
                     style={{
                       background: "rgba(255,255,255,0.03)",
                       transform: "rotate(180deg)",
@@ -1080,21 +1350,20 @@ export function InterpreterPanel() {
                     {myEntriesFace.map((e) => (
                       <div
                         key={e.id}
-                        className="mb-3 max-w-[90%] mx-auto rounded-2xl px-3 py-2.5"
+                        className="mb-3 max-w-[92%] mx-auto rounded-2xl px-3 py-3 text-center"
                         style={{
                           background: "rgba(255,255,255,0.08)",
                           transform: "rotate(180deg)",
                           borderRadius: 16,
                         }}
                       >
-                        <p className="text-[12px] text-white/45">{e.original}</p>
-                        <p className="text-white font-medium mt-1" style={{ fontSize: transPx + 2 }}>
+                        <p className="text-white font-semibold leading-snug" style={{ fontSize: transPx + 4 }}>
                           {e.translated}
                         </p>
                         <button
                           type="button"
-                          onClick={() => void playTts(e.translated, e.toLang)}
-                          className="mt-1 text-sm opacity-70"
+                          onClick={() => void playTtsAudio(e.translated, e.toLang)}
+                          className="mt-2 text-sm opacity-70"
                         >
                           🔊
                         </button>
@@ -1102,21 +1371,20 @@ export function InterpreterPanel() {
                     ))}
                   </div>
                   <div className="shrink-0 border-y border-white/10 bg-[#0a0a0f]">{controlBar}</div>
-                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 flex flex-col justify-start">
                     {theirEntriesFace.map((e) => (
                       <div
                         key={e.id}
-                        className="mb-3 max-w-[90%] rounded-2xl px-3 py-2.5"
+                        className="mb-3 max-w-[92%] rounded-2xl px-3 py-3"
                         style={{ background: "rgba(255,255,255,0.08)", borderRadius: 16 }}
                       >
-                        <p className="text-[12px] text-white/45">{e.original}</p>
-                        <p className="text-white font-medium mt-1" style={{ fontSize: transPx }}>
+                        <p className="text-white font-semibold leading-snug" style={{ fontSize: transPx + 2 }}>
                           {e.translated}
                         </p>
                         <button
                           type="button"
-                          onClick={() => void playTts(e.translated, e.toLang)}
-                          className="mt-1 text-sm opacity-70"
+                          onClick={() => void playTtsAudio(e.translated, e.toLang)}
+                          className="mt-2 text-sm opacity-70"
                         >
                           🔊
                         </button>
@@ -1127,7 +1395,7 @@ export function InterpreterPanel() {
               )}
 
               {layoutMode === "side" && (
-                <div className="flex-1 min-h-0 flex flex-row relative pb-[100px]">
+                <div className="flex-1 min-h-0 flex flex-row relative pb-[120px]">
                   <div className="flex-1 min-w-0 overflow-y-auto px-2 py-2 border-r border-white/10">
                     <p className="text-[11px] text-white/40 text-center mb-2">내 언어</p>
                     {history.map((e) => {
@@ -1148,7 +1416,7 @@ export function InterpreterPanel() {
                           </p>
                           <button
                             type="button"
-                            onClick={() => void playTts(primary, myLang)}
+                            onClick={() => void playTtsAudio(primary, myLang)}
                             className="mt-1 text-xs opacity-70"
                           >
                             🔊
@@ -1177,7 +1445,7 @@ export function InterpreterPanel() {
                           </p>
                           <button
                             type="button"
-                            onClick={() => void playTts(primary, theirLang)}
+                            onClick={() => void playTtsAudio(primary, theirLang)}
                             className="mt-1 text-xs opacity-70"
                           >
                             🔊
