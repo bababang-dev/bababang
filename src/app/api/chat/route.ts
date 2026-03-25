@@ -150,29 +150,29 @@ async function searchBaiduMulti(
   await Promise.all(
     queries.slice(0, 4).map(async (q) => {
       try {
+        console.log("=== SerpAPI 요청 쿼리: " + q + " ===");
+        console.log(
+          "=== SerpAPI API키 앞 10자: " + (apiKey.length >= 10 ? apiKey.slice(0, 10) : apiKey) + "... ==="
+        );
         const serpUrl =
           "https://serpapi.com/search.json?engine=baidu&q=" +
           encodeURIComponent(q) +
           "&api_key=" +
           apiKey;
-        console.log("=== SerpAPI 요청 URL: " + serpUrl + " ===");
+        console.log("=== SerpAPI URL: " + serpUrl.slice(0, 100) + "... ===");
+
         const res = await fetch(serpUrl, { signal: AbortSignal.timeout(8000) });
         console.log("=== SerpAPI 응답 상태: " + res.status + " ===");
-        if (!res.ok) return;
+
         const data = (await res.json()) as {
           organic_results?: Array<{ title?: string; snippet?: string; link?: string }>;
           error?: unknown;
-          search_information?: unknown;
         };
 
-        if (!data.organic_results) {
-          console.log("=== SerpAPI 응답 키: " + Object.keys(data as object).join(",") + " ===");
-          console.log(
-            "=== SerpAPI 에러: " +
-              JSON.stringify(data.error || data.search_information || "").slice(0, 200) +
-              " ==="
-          );
-        } else {
+        console.log("=== SerpAPI 응답 키: " + Object.keys(data as object).join(",") + " ===");
+
+        if (data.organic_results && Array.isArray(data.organic_results)) {
+          console.log("=== SerpAPI organic_results: " + data.organic_results.length + "개 ===");
           for (const item of data.organic_results.slice(0, 5)) {
             const snippet = (item.snippet || "").slice(0, 300);
             const title = item.title || "";
@@ -185,6 +185,12 @@ async function searchBaiduMulti(
               urls.push({ url: link, title });
             }
           }
+        } else {
+          console.log(
+            "=== SerpAPI organic_results 없음! error: " +
+              JSON.stringify(data.error || "없음").slice(0, 200) +
+              " ==="
+          );
         }
       } catch {
         /* ignore */
@@ -586,10 +592,55 @@ async function perplexitySearch(
       .replace(/即墨/g, "즉묵");
   }
 
-  naverKeyword1 = naverKeyword1
-    .replace(/[에서으로해줘알려줘추천좀요]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const removeWords = [
+    "에서",
+    "으로",
+    "해줘",
+    "알려줘",
+    "추천",
+    "좀",
+    "요",
+    "부탁",
+    "디테일하게",
+    "디테일",
+    "상세하게",
+    "상세히",
+    "자세하게",
+    "자세히",
+    "많이",
+    "전부",
+    "다",
+    "좀더",
+    "제발",
+    "빨리",
+    "급해",
+    "급합니다",
+    "합니다",
+    "합니다만",
+    "인데",
+    "인데요",
+    "거든",
+    "거든요",
+    "는데",
+    "는데요",
+    "어디",
+    "뭐",
+    "뭘",
+    "어떤",
+    "어떻게",
+    "싶어",
+    "싶은데",
+    "하고싶어",
+    "갈만한",
+    "괜찮은",
+    "좋은",
+    "맛있는",
+    "유명한",
+  ];
+  for (const w of removeWords) {
+    naverKeyword1 = naverKeyword1.replace(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), " ");
+  }
+  naverKeyword1 = naverKeyword1.replace(/\s+/g, " ").trim();
 
   if (!naverKeyword1.includes("중국")) {
     naverKeyword1 = "중국 " + naverKeyword1;
