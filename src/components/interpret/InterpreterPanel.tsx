@@ -2,35 +2,60 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  Mic,
+  MoreHorizontal,
+  Settings,
+  Volume2,
+  VolumeX,
+  ArrowDownUp,
+  User,
+  Users,
+  Columns2,
+  Check,
+  X,
+} from "lucide-react";
 import { useStore } from "@/stores/useStore";
 import { useModalBodyLock } from "@/lib/useModalBodyLock";
 
+const SESSIONS_KEY = "bababang-interpret-sessions-v1";
+
 export interface InterpretEntry {
+  id: string;
   speaker: "me" | "them";
   original: string;
   translated: string;
+  fromLang: string;
+  toLang: string;
   timestamp: Date;
 }
 
-const LANG_OPTIONS: { code: string; flag: string; label: string }[] = [
-  { code: "zh", flag: "🇨🇳", label: "중국어" },
-  { code: "en", flag: "🇺🇸", label: "영어" },
-  { code: "ko", flag: "🇰🇷", label: "한국어" },
-  { code: "ja", flag: "🇯🇵", label: "일본어" },
-  { code: "hi", flag: "🇮🇳", label: "힌디어" },
-  { code: "es", flag: "🇪🇸", label: "스페인어" },
-  { code: "ar", flag: "🇸🇦", label: "아랍어" },
-  { code: "fr", flag: "🇫🇷", label: "프랑스어" },
-  { code: "id", flag: "🇮🇩", label: "인도네시아어" },
-  { code: "pt", flag: "🇧🇷", label: "포르투갈어" },
-  { code: "ru", flag: "🇷🇺", label: "러시아어" },
-  { code: "de", flag: "🇩🇪", label: "독일어" },
-  { code: "it", flag: "🇮🇹", label: "이탈리아어" },
-  { code: "th", flag: "🇹🇭", label: "태국어" },
-  { code: "pl", flag: "🇵🇱", label: "폴란드어" },
-  { code: "ms", flag: "🇲🇾", label: "말레이시아어" },
-  { code: "el", flag: "🇬🇷", label: "그리스어" },
-  { code: "nl", flag: "🇳🇱", label: "네덜란드어" },
+type PastSession = {
+  id: string;
+  at: number;
+  theirLang: string;
+  myLang: string;
+};
+
+const LANG_SHEET: { code: string; flag: string; native: string; english: string }[] = [
+  { code: "en", flag: "🇺🇸", native: "English", english: "English" },
+  { code: "ja", flag: "🇯🇵", native: "日本語", english: "Japanese" },
+  { code: "zh", flag: "🇨🇳", native: "中文", english: "Chinese" },
+  { code: "hi", flag: "🇮🇳", native: "हिन्दी", english: "Hindi" },
+  { code: "es", flag: "🇪🇸", native: "Español", english: "Spanish" },
+  { code: "ar", flag: "🇸🇦", native: "العربية", english: "Arabic" },
+  { code: "fr", flag: "🇫🇷", native: "Français", english: "French" },
+  { code: "id", flag: "🇮🇩", native: "Bahasa Indonesia", english: "Indonesian" },
+  { code: "pt", flag: "🇧🇷", native: "Português", english: "Portuguese" },
+  { code: "ru", flag: "🇷🇺", native: "Русский", english: "Russian" },
+  { code: "de", flag: "🇩🇪", native: "Deutsch", english: "German" },
+  { code: "it", flag: "🇮🇹", native: "Italiano", english: "Italian" },
+  { code: "th", flag: "🇹🇭", native: "ไทย", english: "Thai" },
+  { code: "pl", flag: "🇵🇱", native: "Polski", english: "Polish" },
+  { code: "ms", flag: "🇲🇾", native: "Bahasa Melayu", english: "Malaysian" },
+  { code: "el", flag: "🇬🇷", native: "Ελληνικά", english: "Greek" },
+  { code: "nl", flag: "🇳🇱", native: "Nederlands", english: "Dutch" },
+  { code: "ko", flag: "🇰🇷", native: "한국어", english: "Korean" },
 ];
 
 const SPEECH_LANG: Record<string, string> = {
@@ -54,44 +79,32 @@ const SPEECH_LANG: Record<string, string> = {
   nl: "nl-NL",
 };
 
+function langMeta(code: string) {
+  return LANG_SHEET.find((l) => l.code === code) ?? LANG_SHEET[2];
+}
+
 type LayoutMode = "single" | "face" | "side";
 type InputMode = "realtime" | "push";
 
-function LangGrid({
-  title,
-  value,
-  onChange,
-}: {
-  title: string;
-  value: string;
-  onChange: (code: string) => void;
-}) {
-  return (
-    <div className="w-full max-w-[360px] mx-auto">
-      <p className="text-center text-sm text-white/70 mb-2">{title}</p>
-      <div className="grid grid-cols-3 gap-2">
-        {LANG_OPTIONS.map((L) => {
-          const sel = L.code === value;
-          return (
-            <button
-              key={L.code}
-              type="button"
-              onClick={() => onChange(L.code)}
-              className="rounded-xl px-2 py-2 text-left text-xs transition-colors"
-              style={{
-                border: sel ? "2px solid #6c5ce7" : "1px solid rgba(255,255,255,0.12)",
-                background: sel ? "rgba(108,92,231,0.2)" : "rgba(255,255,255,0.06)",
-                color: sel ? "#e9d5ff" : "rgba(255,255,255,0.85)",
-              }}
-            >
-              <span className="mr-1">{L.flag}</span>
-              {L.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+function loadSessions(): PastSession[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SESSIONS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as PastSession[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveSessions(sessions: PastSession[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 30)));
+  } catch {
+    /* ignore */
+  }
 }
 
 export function InterpreterPanel() {
@@ -104,19 +117,32 @@ export function InterpreterPanel() {
   const [phase, setPhase] = useState<"setup" | "live">("setup");
   const [theirLang, setTheirLang] = useState("zh");
   const [myLang, setMyLang] = useState("ko");
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>("single");
-  const [inputMode, setInputMode] = useState<InputMode>("realtime");
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("face");
+  const [inputMode, setInputMode] = useState<InputMode>("push");
   const [speakerTurn, setSpeakerTurn] = useState<"me" | "them">("me");
   const [history, setHistory] = useState<InterpretEntry[]>([]);
   const [processing, setProcessing] = useState(false);
   const [interim, setInterim] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [langPicker, setLangPicker] = useState<"their" | "my" | null>(null);
+  const [liveSettingsOpen, setLiveSettingsOpen] = useState(false);
+  const [setupMenuOpen, setSetupMenuOpen] = useState(false);
+  const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
+  const [fontScale, setFontScale] = useState(1);
+  const [ttsOn, setTtsOn] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const ttsOnRef = useRef(true);
+  ttsOnRef.current = ttsOn;
 
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<Blob[]>([]);
   const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (interpreterOpen) setPastSessions(loadSessions());
+  }, [interpreterOpen]);
 
   const closeAll = useCallback(() => {
     try {
@@ -138,10 +164,14 @@ export function InterpreterPanel() {
     setHistory([]);
     setInterim("");
     setErrorMsg("");
+    setLangPicker(null);
+    setLiveSettingsOpen(false);
+    setSetupMenuOpen(false);
+    setIsRecording(false);
   }, [setInterpreterOpen]);
 
   const playTts = useCallback(async (text: string, langCode: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() || !ttsOnRef.current) return;
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
@@ -163,6 +193,33 @@ export function InterpreterPanel() {
       /* ignore */
     }
   }, []);
+
+  const previewLangTts = useCallback(
+    (code: string) => {
+      const samples: Record<string, string> = {
+        en: "Hello",
+        ja: "こんにちは",
+        zh: "你好",
+        ko: "안녕하세요",
+        hi: "नमस्ते",
+        es: "Hola",
+        ar: "مرحبا",
+        fr: "Bonjour",
+        id: "Halo",
+        pt: "Olá",
+        ru: "Привет",
+        de: "Hallo",
+        it: "Ciao",
+        th: "สวัสดี",
+        pl: "Cześć",
+        ms: "Helo",
+        el: "Γεια",
+        nl: "Hallo",
+      };
+      void playTts(samples[code] || "Hello", code);
+    },
+    [playTts]
+  );
 
   const runPipeline = useCallback(
     async (original: string, from: string, to: string, speaker: "me" | "them") => {
@@ -188,14 +245,19 @@ export function InterpreterPanel() {
         }
         const translated = (data.translated || "").trim();
         const entry: InterpretEntry = {
+          id:
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random()}`,
           speaker,
           original: trimmed,
           translated,
+          fromLang: from,
+          toLang: to,
           timestamp: new Date(),
         };
         setHistory((h) => [...h, entry]);
         void playTts(translated, to);
-        setSpeakerTurn((s) => (s === "me" ? "them" : "me"));
       } finally {
         setProcessing(false);
         setInterim("");
@@ -258,6 +320,7 @@ export function InterpreterPanel() {
     }
 
     stopRealtime();
+
     const from = speakerTurn === "me" ? myLang : theirLang;
     const to = speakerTurn === "me" ? theirLang : myLang;
     const turn = speakerTurn;
@@ -299,15 +362,7 @@ export function InterpreterPanel() {
     }
 
     return () => stopRealtime();
-  }, [
-    interpreterOpen,
-    phase,
-    inputMode,
-    speakerTurn,
-    myLang,
-    theirLang,
-    stopRealtime,
-  ]);
+  }, [interpreterOpen, phase, inputMode, speakerTurn, myLang, theirLang, stopRealtime]);
 
   const ensureMic = async () => {
     if (mediaStreamRef.current) return mediaStreamRef.current;
@@ -322,6 +377,7 @@ export function InterpreterPanel() {
     const my = myLang;
     const their = theirLang;
     setErrorMsg("");
+    setIsRecording(true);
     try {
       const stream = await ensureMic();
       const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -333,6 +389,7 @@ export function InterpreterPanel() {
         if (e.data.size) recChunksRef.current.push(e.data);
       };
       mr.onstop = () => {
+        setIsRecording(false);
         void (async () => {
           const blob = new Blob(recChunksRef.current, { type: mime });
           if (blob.size < 100) {
@@ -363,6 +420,7 @@ export function InterpreterPanel() {
       mediaRecorderRef.current = mr;
       mr.start();
     } catch {
+      setIsRecording(false);
       setErrorMsg("마이크 권한이 필요해요.");
     }
   };
@@ -373,365 +431,807 @@ export function InterpreterPanel() {
     } catch {
       /* ignore */
     }
-    mediaRecorderRef.current = null;
   };
 
-  const myEntries = history.filter((e) => e.speaker === "me");
-  const theirEntries = history.filter((e) => e.speaker === "them");
+  const swapLanguages = () => {
+    const t = theirLang;
+    setTheirLang(myLang);
+    setMyLang(t);
+  };
 
-  const renderEntry = (e: InterpretEntry, accent: "me" | "them") => (
-    <div
-      key={e.timestamp.getTime() + e.original.slice(0, 8)}
-      className="rounded-xl p-3 mb-2"
-      style={{
-        background:
-          accent === "me" ? "rgba(108,92,231,0.12)" : "rgba(239,68,68,0.1)",
-        border:
-          accent === "me"
-            ? "1px solid rgba(108,92,231,0.25)"
-            : "1px solid rgba(239,68,68,0.2)",
-      }}
-    >
-      <p className="text-[13px] text-white/55 whitespace-pre-wrap break-words">{e.original}</p>
-      <div className="flex items-start gap-2 mt-1">
-        <p
-          className="flex-1 text-[20px] font-semibold leading-snug whitespace-pre-wrap break-words"
-          style={{ color: accent === "me" ? "#a78bfa" : "#fb923c" }}
-        >
-          {e.translated}
-        </p>
-        <button
-          type="button"
-          onClick={() => void playTts(e.translated, accent === "me" ? theirLang : myLang)}
-          className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-lg"
+  const endSession = () => {
+    if (history.length > 0) {
+      const sess: PastSession = {
+        id: `${Date.now()}`,
+        at: Date.now(),
+        theirLang,
+        myLang,
+      };
+      const next = [sess, ...pastSessions].slice(0, 30);
+      setPastSessions(next);
+      saveSessions(next);
+    }
+    setHistory([]);
+    setPhase("setup");
+    setLiveSettingsOpen(false);
+    stopRealtime();
+  };
+
+  const transPx = Math.round(18 * fontScale);
+  const theirM = langMeta(theirLang);
+  const myM = langMeta(myLang);
+  const myEntriesFace = history.filter((e) => e.speaker === "me");
+  const theirEntriesFace = history.filter((e) => e.speaker === "them");
+
+  const bubble = (e: InterpretEntry) => {
+    const isMe = e.speaker === "me";
+    return (
+      <div
+        key={e.id}
+        className={`flex w-full mb-3 ${isMe ? "justify-end" : "justify-start"}`}
+      >
+        <div
+          className="max-w-[85%] rounded-2xl px-3 py-2.5 relative"
           style={{
             background: "rgba(255,255,255,0.08)",
-            border: "1px solid rgba(255,255,255,0.15)",
+            borderRadius: 16,
           }}
-          aria-label="재생"
         >
-          🔊
-        </button>
+          <button
+            type="button"
+            onClick={() => void playTts(e.translated, e.toLang)}
+            className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center text-sm opacity-70 hover:opacity-100"
+            aria-label="읽기"
+          >
+            🔊
+          </button>
+          <p className="text-[12px] text-white/45 pr-8 whitespace-pre-wrap break-words leading-snug">
+            {e.original}
+          </p>
+          <p
+            className="text-white font-medium mt-1 pr-6 whitespace-pre-wrap break-words leading-snug"
+            style={{ fontSize: transPx }}
+          >
+            {e.translated}
+          </p>
+        </div>
       </div>
+    );
+  };
+
+  const controlBar = (
+    <div
+      className="shrink-0 flex items-center justify-center gap-3 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-white/10 bg-[#0a0a0f]"
+      style={layoutMode === "side" ? { position: "absolute", bottom: 0, left: 0, right: 0 } : {}}
+    >
+      <button
+        type="button"
+        onClick={() => setSpeakerTurn((s) => (s === "me" ? "them" : "me"))}
+        className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium"
+        style={{
+          background: "rgba(255,255,255,0.1)",
+          border: "1px solid rgba(255,255,255,0.2)",
+          color: "#fff",
+        }}
+      >
+        <span>{speakerTurn === "me" ? myM.flag : theirM.flag}</span>
+        <span className="text-white/50">/</span>
+        <span>{speakerTurn === "me" ? theirM.flag : myM.flag}</span>
+      </button>
+
+      {inputMode === "push" ? (
+        <div className="flex flex-col items-center gap-1">
+          <motion.button
+            type="button"
+            disabled={processing}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              void startPushRecord();
+            }}
+            onMouseUp={() => stopPushRecord()}
+            onMouseLeave={() => isRecording && stopPushRecord()}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              void startPushRecord();
+            }}
+            onTouchEnd={() => stopPushRecord()}
+            className="relative w-[72px] h-[72px] rounded-full flex flex-col items-center justify-center text-[#0a0a0f] font-semibold text-[11px] disabled:opacity-50"
+            style={{
+              background: isRecording ? "#ef4444" : "#ffffff",
+              touchAction: "none",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+            }}
+            animate={
+              isRecording
+                ? { scale: [1, 1.06, 1] }
+                : { scale: 1 }
+            }
+            transition={isRecording ? { repeat: Infinity, duration: 0.9 } : {}}
+          >
+            <Mic className="w-7 h-7 mb-0.5" strokeWidth={2.2} />
+            누르기
+          </motion.button>
+        </div>
+      ) : (
+        <div className="w-[72px] h-[72px] rounded-full flex items-center justify-center text-xs text-white/40 border border-white/15">
+          실시간
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setTtsOn((v) => !v)}
+        className="w-11 h-11 rounded-full flex items-center justify-center"
+        style={{
+          background: "#ffffff",
+          color: "#0a0a0f",
+        }}
+        aria-label={ttsOn ? "음성 끄기" : "음성 켜기"}
+      >
+        {ttsOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setLiveSettingsOpen(true)}
+        className="w-11 h-11 rounded-full flex items-center justify-center"
+        style={{
+          background: "#ffffff",
+          color: "#0a0a0f",
+        }}
+        aria-label="설정"
+      >
+        <Settings className="w-5 h-5" />
+      </button>
     </div>
+  );
+
+  const languageSheet = (
+    <AnimatePresence>
+      {langPicker && (
+        <>
+          <motion.button
+            type="button"
+            aria-label="닫기"
+            className="fixed inset-0 z-[1100] bg-black/50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setLangPicker(null)}
+          />
+          <motion.div
+            role="dialog"
+            aria-modal
+            className="fixed left-0 right-0 bottom-0 z-[1101] max-h-[72vh] flex flex-col mx-auto max-w-[430px]"
+            style={{
+              background: "#1a1a2e",
+              borderRadius: "20px 20px 0 0",
+            }}
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 28, stiffness: 320 }}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+              <span className="text-white font-semibold">언어 선택</span>
+              <button
+                type="button"
+                onClick={() => setLangPicker(null)}
+                className="p-2 rounded-full hover:bg-white/10"
+                aria-label="닫기"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-2 py-2 pb-8">
+              {LANG_SHEET.map((L) => {
+                const sel =
+                  langPicker === "their" ? L.code === theirLang : L.code === myLang;
+                return (
+                  <button
+                    key={L.code}
+                    type="button"
+                    onClick={() => {
+                      if (langPicker === "their") setTheirLang(L.code);
+                      else setMyLang(L.code);
+                      setLangPicker(null);
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left hover:bg-white/5"
+                  >
+                    <span className="text-xl">{L.flag}</span>
+                    <span className="flex-1 text-white">
+                      <span className="font-medium">{L.native}</span>
+                      <span className="text-white/45 text-sm"> / {L.english}</span>
+                    </span>
+                    {sel ? (
+                      <Check className="w-5 h-5 text-sky-400 shrink-0" strokeWidth={2.5} />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+
+  const liveSettingsSheet = (
+    <AnimatePresence>
+      {liveSettingsOpen && (
+        <>
+          <motion.button
+            type="button"
+            className="fixed inset-0 z-[1100] bg-black/50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setLiveSettingsOpen(false)}
+          />
+          <motion.div
+            className="fixed left-0 right-0 bottom-0 z-[1101] max-h-[80vh] overflow-y-auto mx-auto max-w-[430px] px-4 pt-4 pb-8"
+            style={{
+              background: "#1a1a2e",
+              borderRadius: "20px 20px 0 0",
+            }}
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 28, stiffness: 320 }}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-white font-semibold">설정</span>
+              <button type="button" onClick={() => setLiveSettingsOpen(false)} className="p-2">
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+            <p className="text-xs text-white/50 mb-2">레이아웃</p>
+            <div className="flex gap-2 mb-4">
+              {(
+                [
+                  ["single", "단일", User],
+                  ["face", "대면", Users],
+                  ["side", "나란히", Columns2],
+                ] as const
+              ).map(([k, lab, Icon]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setLayoutMode(k)}
+                  className="flex-1 flex flex-col items-center gap-1 py-3 rounded-xl text-xs text-white/90"
+                  style={
+                    layoutMode === k
+                      ? {
+                          background: "rgba(255,255,255,0.14)",
+                          border: "1px solid rgba(255,255,255,0.35)",
+                        }
+                      : {
+                          background: "rgba(255,255,255,0.05)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                        }
+                  }
+                >
+                  <Icon className="w-5 h-5" />
+                  {lab}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-white/50 mb-2">입력 모드</p>
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setInputMode("realtime")}
+                className="flex-1 py-3 rounded-xl text-sm text-white/90"
+                style={
+                  inputMode === "realtime"
+                    ? {
+                        background: "rgba(255,255,255,0.18)",
+                        border: "1px solid rgba(255,255,255,0.35)",
+                      }
+                    : {
+                        background: "rgba(255,255,255,0.05)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                      }
+                }
+              >
+                실시간
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMode("push")}
+                className="flex-1 py-3 rounded-xl text-sm text-white/90"
+                style={
+                  inputMode === "push"
+                    ? {
+                        background: "rgba(255,255,255,0.18)",
+                        border: "1px solid rgba(255,255,255,0.35)",
+                      }
+                    : {
+                        background: "rgba(255,255,255,0.05)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                      }
+                }
+              >
+                누르고 말하기
+              </button>
+            </div>
+            <p className="text-xs text-white/50 mb-2">글자 크기</p>
+            <div className="flex items-center gap-3 mb-6">
+              <button
+                type="button"
+                onClick={() => setFontScale((f) => Math.max(0.85, f - 0.1))}
+                className="w-10 h-10 rounded-lg bg-white text-[#0a0a0f] font-bold"
+              >
+                A-
+              </button>
+              <span className="flex-1 text-center text-white/80 text-sm">미리보기</span>
+              <button
+                type="button"
+                onClick={() => setFontScale((f) => Math.min(1.35, f + 0.1))}
+                className="w-10 h-10 rounded-lg bg-white text-[#0a0a0f] font-bold text-lg"
+              >
+                A+
+              </button>
+            </div>
+            <p className="text-center mb-2" style={{ fontSize: transPx }}>
+              번역 텍스트 크기
+            </p>
+            <button
+              type="button"
+              onClick={endSession}
+              className="w-full py-3 rounded-xl font-semibold bg-white text-[#0a0a0f]"
+            >
+              세션 종료
+            </button>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 
   return (
     <AnimatePresence>
       {interpreterOpen ? (
-      <motion.div
-        key="interpreter-panel"
-        className="fixed inset-0 z-[1000] flex flex-col"
-        style={{ background: "#0a0a0f" }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-      >
-        <audio ref={audioRef} className="hidden" />
+        <motion.div
+          key="interpreter-panel"
+          className="fixed inset-0 z-[1000] flex flex-col"
+          style={{ background: "#0a0a0f" }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <audio ref={audioRef} className="hidden" />
 
-        {phase === "setup" ? (
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto px-4 py-4">
-            <div className="flex items-center justify-between shrink-0 mb-4">
-              <h1 className="text-lg font-bold text-white" style={{ fontFamily: "Outfit, sans-serif" }}>
-                🎙️ 동시통역
-              </h1>
-              <button
-                type="button"
-                onClick={closeAll}
-                className="w-10 h-10 rounded-full flex items-center justify-center text-white/80 bg-white/10"
-                aria-label="닫기"
-              >
-                ✕
-              </button>
-            </div>
+          {phase === "setup" ? (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="shrink-0 flex items-center justify-between px-4 pt-3 pb-2">
+                <h1 className="text-lg font-semibold text-white tracking-tight">실시간 번역</h1>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSetupMenuOpen(true)}
+                    className="p-2 rounded-full hover:bg-white/10 text-white/80"
+                    aria-label="설정"
+                  >
+                    <MoreHorizontal className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeAll}
+                    className="p-2 rounded-full hover:bg-white/10 text-white/80"
+                    aria-label="닫기"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
 
-            <div className="flex-1 flex flex-col justify-center gap-6 py-4">
-              <LangGrid title="상대방 언어" value={theirLang} onChange={setTheirLang} />
-              <LangGrid title="내 언어" value={myLang} onChange={setMyLang} />
+              <div className="flex-1 overflow-y-auto px-4 pb-4">
+                <p className="text-[13px] text-white/55 mb-2">상대방 언어</p>
+                <button
+                  type="button"
+                  onClick={() => setLangPicker("their")}
+                  className="w-full flex items-center justify-between px-4 py-3.5 mb-1 text-left"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.15)",
+                  }}
+                >
+                  <span className="flex items-center gap-2 text-white">
+                    <span className="text-lg">{theirM.flag}</span>
+                    <span>{theirM.native}</span>
+                  </span>
+                  <span className="flex items-center gap-2 text-white/45">
+                    <span>›</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void previewLangTts(theirLang);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.stopPropagation();
+                          void previewLangTts(theirLang);
+                        }
+                      }}
+                      className="text-base p-1"
+                    >
+                      🔊
+                    </span>
+                  </span>
+                </button>
 
-              <div className="w-full max-w-[360px] mx-auto">
-                <p className="text-center text-sm text-white/70 mb-2">스타일</p>
+                <div className="flex justify-center py-2">
+                  <button
+                    type="button"
+                    onClick={swapLanguages}
+                    className="p-2 rounded-full bg-white/10 text-white/70"
+                    aria-label="언어 바꿈"
+                  >
+                    <ArrowDownUp className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <p className="text-[13px] text-white/55 mb-2">내 언어</p>
+                <button
+                  type="button"
+                  onClick={() => setLangPicker("my")}
+                  className="w-full flex items-center justify-between px-4 py-3.5 text-left"
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.15)",
+                  }}
+                >
+                  <span className="flex items-center gap-2 text-white">
+                    <span className="text-lg">{myM.flag}</span>
+                    <span>{myM.native}</span>
+                  </span>
+                  <span className="flex items-center gap-2 text-white/45">
+                    <span>›</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void previewLangTts(myLang);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.stopPropagation();
+                          void previewLangTts(myLang);
+                        }
+                      }}
+                      className="text-base p-1"
+                    >
+                      🔊
+                    </span>
+                  </span>
+                </button>
+
+                <p className="text-[13px] text-white/55 mt-6 mb-2">표시 스타일</p>
                 <div className="flex gap-2">
                   {(
                     [
-                      ["single", "단일"],
-                      ["face", "대면"],
-                      ["side", "나란히"],
+                      ["single", "단일", User],
+                      ["face", "대면", Users],
+                      ["side", "나란히", Columns2],
                     ] as const
-                  ).map(([k, lab]) => (
+                  ).map(([k, lab, Icon]) => (
                     <button
                       key={k}
                       type="button"
                       onClick={() => setLayoutMode(k)}
-                      className="flex-1 py-2 rounded-xl text-xs font-medium"
-                      style={{
-                        border:
-                          layoutMode === k ? "2px solid #6c5ce7" : "1px solid rgba(255,255,255,0.12)",
-                        background:
-                          layoutMode === k ? "rgba(108,92,231,0.2)" : "rgba(255,255,255,0.06)",
-                        color: layoutMode === k ? "#e9d5ff" : "rgba(255,255,255,0.75)",
-                      }}
+                      className="flex-1 flex flex-col items-center gap-1 py-3 rounded-xl text-[11px] text-white/90"
+                      style={
+                        layoutMode === k
+                          ? {
+                              background: "rgba(255,255,255,0.14)",
+                              border: "1px solid rgba(255,255,255,0.35)",
+                            }
+                          : {
+                              background: "rgba(255,255,255,0.05)",
+                              border: "1px solid rgba(255,255,255,0.1)",
+                            }
+                      }
                     >
+                      <Icon className="w-5 h-5" />
                       {lab}
                     </button>
                   ))}
                 </div>
-              </div>
 
-              <div className="w-full max-w-[360px] mx-auto">
-                <p className="text-center text-sm text-white/70 mb-2">입력 모드</p>
+                <p className="text-[13px] text-white/55 mt-6 mb-2">입력 모드</p>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setInputMode("realtime")}
-                    className="flex-1 py-3 rounded-xl text-sm font-medium"
-                    style={{
-                      border:
-                        inputMode === "realtime"
-                          ? "2px solid #6c5ce7"
-                          : "1px solid rgba(255,255,255,0.12)",
-                      background:
-                        inputMode === "realtime"
-                          ? "rgba(108,92,231,0.2)"
-                          : "rgba(255,255,255,0.06)",
-                      color: inputMode === "realtime" ? "#e9d5ff" : "rgba(255,255,255,0.75)",
-                    }}
+                    className="flex-1 py-3 rounded-xl text-sm text-white/90"
+                    style={
+                      inputMode === "realtime"
+                        ? {
+                            background: "rgba(255,255,255,0.18)",
+                            border: "1px solid rgba(255,255,255,0.35)",
+                          }
+                        : {
+                            background: "rgba(255,255,255,0.05)",
+                            border: "1px solid rgba(255,255,255,0.1)",
+                          }
+                    }
                   >
                     실시간
                   </button>
                   <button
                     type="button"
                     onClick={() => setInputMode("push")}
-                    className="flex-1 py-3 rounded-xl text-sm font-medium"
-                    style={{
-                      border:
-                        inputMode === "push" ? "2px solid #6c5ce7" : "1px solid rgba(255,255,255,0.12)",
-                      background:
-                        inputMode === "push" ? "rgba(108,92,231,0.2)" : "rgba(255,255,255,0.06)",
-                      color: inputMode === "push" ? "#e9d5ff" : "rgba(255,255,255,0.75)",
-                    }}
+                    className="flex-1 py-3 rounded-xl text-sm text-white/90"
+                    style={
+                      inputMode === "push"
+                        ? {
+                            background: "rgba(255,255,255,0.18)",
+                            border: "1px solid rgba(255,255,255,0.35)",
+                          }
+                        : {
+                            background: "rgba(255,255,255,0.05)",
+                            border: "1px solid rgba(255,255,255,0.1)",
+                          }
+                    }
                   >
                     누르고 말하기
                   </button>
                 </div>
+
+                <motion.button
+                  type="button"
+                  onClick={() => setPhase("live")}
+                  className="w-full mt-8 py-3.5 rounded-xl font-semibold text-[#0a0a0f]"
+                  style={{ background: "#ffffff" }}
+                  whileTap={{ scale: 0.99 }}
+                >
+                  🎙 대화 시작
+                </motion.button>
+
+                <p className="text-[13px] text-white/45 mt-8 mb-2">대화 기록</p>
+                <div className="space-y-2">
+                  {pastSessions.length === 0 ? (
+                    <p className="text-sm text-white/35">저장된 세션이 없어요</p>
+                  ) : (
+                    pastSessions.map((s) => {
+                      const d = new Date(s.at);
+                      const tf = langMeta(s.theirLang);
+                      const mf = langMeta(s.myLang);
+                      return (
+                        <div
+                          key={s.id}
+                          className="flex items-center justify-between py-3 px-3 rounded-xl"
+                          style={{
+                            background: "rgba(255,255,255,0.05)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                          }}
+                        >
+                          <div>
+                            <p className="text-sm text-white/90">Realtime Translation</p>
+                            <p className="text-xs text-white/45 mt-0.5">
+                              {tf.flag} {mf.flag}
+                            </p>
+                          </div>
+                          <p className="text-xs text-white/40 text-right">
+                            {d.toLocaleDateString()}
+                            <br />
+                            {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col min-h-0 relative">
+              <div className="shrink-0 flex items-center justify-between px-3 py-2.5 border-b border-white/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopRealtime();
+                    setPhase("setup");
+                  }}
+                  className="p-2 text-white/70 text-lg leading-none"
+                  aria-label="뒤로"
+                >
+                  ←
+                </button>
+                <span className="text-sm font-medium text-white/90">실시간 번역</span>
+                <button
+                  type="button"
+                  onClick={closeAll}
+                  className="p-2 rounded-full hover:bg-white/10 text-white/80"
+                  aria-label="닫기"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              <motion.button
-                type="button"
-                onClick={() => setPhase("live")}
-                className="w-full max-w-[360px] mx-auto py-4 rounded-2xl text-white text-lg font-bold"
-                style={{
-                  background: "linear-gradient(135deg, #6c5ce7 0%, #8b5cf6 100%)",
-                  boxShadow: "0 8px 32px rgba(108, 92, 231, 0.4)",
-                }}
-                whileTap={{ scale: 0.98 }}
-              >
-                대화 시작
-              </motion.button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10">
-              <button
-                type="button"
-                onClick={() => {
-                  stopRealtime();
-                  setPhase("setup");
-                }}
-                className="text-sm text-white/60"
-              >
-                ← 설정
-              </button>
-              <span className="text-sm text-white/80 font-medium">동시통역</span>
-              <button
-                type="button"
-                onClick={closeAll}
-                className="w-9 h-9 rounded-full bg-white/10 text-white/90"
-                aria-label="닫기"
-              >
-                ✕
-              </button>
-            </div>
+              {errorMsg ? (
+                <div className="shrink-0 px-3 py-2 text-center text-sm text-red-300">{errorMsg}</div>
+              ) : null}
 
-            {errorMsg ? (
-              <div className="shrink-0 px-3 py-2 text-center text-sm text-red-300">{errorMsg}</div>
-            ) : null}
-
-            <div
-              className="flex-1 min-h-0 flex flex-col"
-              style={
-                layoutMode === "side"
-                  ? { flexDirection: "row" }
-                  : { flexDirection: "column" }
-              }
-            >
               {layoutMode === "single" && (
-                <>
-                  <div
-                    className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
-                    style={{ background: "rgba(108,92,231,0.05)" }}
-                  >
-                    <p className="text-xs text-white/45 mb-2 text-center">내 쪽 (말하면 상대방 언어로)</p>
-                    {inputMode === "realtime" && speakerTurn === "me" && interim ? (
-                      <p className="text-sm text-white/50 italic mb-2">{interim}</p>
-                    ) : null}
-                    {myEntries.map((e) => renderEntry(e, "me"))}
-                  </div>
-                  <div className="shrink-0 py-2 text-center text-xs text-white/50 border-y border-white/10">
-                    {speakerTurn === "me" ? "🎤 내 차례" : "👂 상대방 차례"}
-                    <button
-                      type="button"
-                      onClick={() => setSpeakerTurn((s) => (s === "me" ? "them" : "me"))}
-                      className="ml-3 text-[#a78bfa] underline text-xs"
-                    >
-                      수동 전환
-                    </button>
-                  </div>
-                  <div
-                    className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
-                    style={{ background: "rgba(239,68,68,0.05)" }}
-                  >
-                    <p className="text-xs text-white/45 mb-2 text-center">상대방 쪽</p>
-                    {inputMode === "realtime" && speakerTurn === "them" && interim ? (
-                      <p className="text-sm text-white/50 italic mb-2">{interim}</p>
-                    ) : null}
-                    {theirEntries.map((e) => renderEntry(e, "them"))}
-                  </div>
-                </>
+                <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
+                  {inputMode === "realtime" && interim ? (
+                    <p className="text-sm text-white/40 text-center mb-2 italic">{interim}</p>
+                  ) : null}
+                  {history.map((e) => bubble(e))}
+                </div>
               )}
 
               {layoutMode === "face" && (
-                <>
+                <div className="flex-1 min-h-0 flex flex-col">
                   <div
-                    className="min-h-0 flex-1 overflow-y-auto px-3 py-2 flex flex-col justify-center"
+                    className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
                     style={{
-                      background: "rgba(108,92,231,0.08)",
+                      background: "rgba(255,255,255,0.03)",
                       transform: "rotate(180deg)",
                     }}
                   >
-                    <p
-                      className="text-center text-xs text-white/45 mb-2"
-                      style={{ transform: "rotate(180deg)" }}
-                    >
-                      상대방이 보는 화면 (내 말 → 번역)
-                    </p>
-                    {myEntries.slice(-3).map((e) => (
-                      <div key={e.timestamp.getTime()} className="mb-2 text-center" style={{ transform: "rotate(180deg)" }}>
-                        <p className="text-[22px] font-bold" style={{ color: "#a78bfa" }}>
+                    {myEntriesFace.map((e) => (
+                      <div
+                        key={e.id}
+                        className="mb-3 max-w-[90%] mx-auto rounded-2xl px-3 py-2.5"
+                        style={{
+                          background: "rgba(255,255,255,0.08)",
+                          transform: "rotate(180deg)",
+                          borderRadius: 16,
+                        }}
+                      >
+                        <p className="text-[12px] text-white/45">{e.original}</p>
+                        <p className="text-white font-medium mt-1" style={{ fontSize: transPx + 2 }}>
                           {e.translated}
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => void playTts(e.translated, e.toLang)}
+                          className="mt-1 text-sm opacity-70"
+                        >
+                          🔊
+                        </button>
                       </div>
                     ))}
                   </div>
-                  <div className="shrink-0 py-2 text-center text-xs text-white/50 border-y border-white/10">
-                    {speakerTurn === "me" ? "내 차례" : "상대방 차례"}
-                    <button
-                      type="button"
-                      onClick={() => setSpeakerTurn((s) => (s === "me" ? "them" : "me"))}
-                      className="ml-3 text-[#a78bfa] underline text-xs"
-                    >
-                      수동 전환
-                    </button>
-                  </div>
-                  <div
-                    className="min-h-0 flex-1 overflow-y-auto px-3 py-2 flex flex-col justify-center"
-                    style={{ background: "rgba(239,68,68,0.06)" }}
-                  >
-                    <p className="text-center text-xs text-white/45 mb-2">내가 보는 화면</p>
-                    {theirEntries.slice(-5).map((e) => (
-                      <div key={e.timestamp.getTime()} className="mb-3">
-                        <p className="text-[13px] text-white/50">{e.original}</p>
-                        <p className="text-[20px] font-semibold" style={{ color: "#fb923c" }}>
+                  <div className="shrink-0 border-y border-white/10 bg-[#0a0a0f]">{controlBar}</div>
+                  <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                    {theirEntriesFace.map((e) => (
+                      <div
+                        key={e.id}
+                        className="mb-3 max-w-[90%] rounded-2xl px-3 py-2.5"
+                        style={{ background: "rgba(255,255,255,0.08)", borderRadius: 16 }}
+                      >
+                        <p className="text-[12px] text-white/45">{e.original}</p>
+                        <p className="text-white font-medium mt-1" style={{ fontSize: transPx }}>
                           {e.translated}
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => void playTts(e.translated, e.toLang)}
+                          className="mt-1 text-sm opacity-70"
+                        >
+                          🔊
+                        </button>
                       </div>
                     ))}
                   </div>
-                </>
+                </div>
               )}
 
               {layoutMode === "side" && (
-                <>
-                  <div
-                    className="min-h-0 flex-1 overflow-y-auto px-2 py-2 border-r border-white/10"
-                    style={{ background: "rgba(108,92,231,0.06)" }}
-                  >
-                    <p className="text-xs text-center text-white/45 mb-2">내 언어 영역</p>
-                    {history.map((e) => (
-                      <div key={e.timestamp.getTime() + e.speaker} className="mb-2 text-sm">
-                        {e.speaker === "me" ? (
-                          <>
-                            <span className="text-white/40 text-[11px]">나 </span>
-                            <span className="text-white/90">{e.original}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-white/40 text-[11px]">상대→나 </span>
-                            <span style={{ color: "#fb923c" }}>{e.translated}</span>
-                          </>
-                        )}
-                      </div>
-                    ))}
+                <div className="flex-1 min-h-0 flex flex-row relative pb-[100px]">
+                  <div className="flex-1 min-w-0 overflow-y-auto px-2 py-2 border-r border-white/10">
+                    <p className="text-[11px] text-white/40 text-center mb-2">내 언어</p>
+                    {history.map((e) => {
+                      const primary = e.speaker === "me" ? e.original : e.translated;
+                      const sub = e.speaker === "me" ? e.translated : e.original;
+                      return (
+                        <div
+                          key={e.id + "L"}
+                          className="mb-3 rounded-2xl px-3 py-2"
+                          style={{ background: "rgba(255,255,255,0.08)" }}
+                        >
+                          <p className="text-[12px] text-white/45 whitespace-pre-wrap">{sub}</p>
+                          <p
+                            className="text-white font-medium mt-1 whitespace-pre-wrap"
+                            style={{ fontSize: transPx }}
+                          >
+                            {primary}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void playTts(primary, myLang)}
+                            className="mt-1 text-xs opacity-70"
+                          >
+                            🔊
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <div
-                    className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
-                    style={{ background: "rgba(239,68,68,0.06)" }}
-                  >
-                    <p className="text-xs text-center text-white/45 mb-2">상대방 언어 영역</p>
-                    {history.map((e) => (
-                      <div key={e.timestamp.getTime() + e.speaker + "r"} className="mb-2 text-sm">
-                        {e.speaker === "them" ? (
-                          <>
-                            <span className="text-white/40 text-[11px]">상대 </span>
-                            <span className="text-white/90">{e.original}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-white/40 text-[11px]">나→상대 </span>
-                            <span style={{ color: "#a78bfa" }}>{e.translated}</span>
-                          </>
-                        )}
-                      </div>
-                    ))}
+                  <div className="flex-1 min-w-0 overflow-y-auto px-2 py-2">
+                    <p className="text-[11px] text-white/40 text-center mb-2">상대 언어</p>
+                    {history.map((e) => {
+                      const primary = e.speaker === "me" ? e.translated : e.original;
+                      const sub = e.speaker === "me" ? e.original : e.translated;
+                      return (
+                        <div
+                          key={e.id + "R"}
+                          className="mb-3 rounded-2xl px-3 py-2"
+                          style={{ background: "rgba(255,255,255,0.08)" }}
+                        >
+                          <p className="text-[12px] text-white/45 whitespace-pre-wrap">{sub}</p>
+                          <p
+                            className="text-white font-medium mt-1 whitespace-pre-wrap"
+                            style={{ fontSize: transPx }}
+                          >
+                            {primary}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void playTts(primary, theirLang)}
+                            className="mt-1 text-xs opacity-70"
+                          >
+                            🔊
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                </>
+                  {controlBar}
+                </div>
               )}
-            </div>
 
-            {inputMode === "push" ? (
-              <div
-                className="shrink-0 flex flex-col items-center py-4 pb-[max(1rem,env(safe-area-inset-bottom))] gap-2 border-t border-white/10"
-              >
-                <p className="text-xs text-white/50">
-                  {speakerTurn === "me" ? "내 차례 — 길게 눌러 말하기" : "상대방 차례 — 길게 눌러 말하기"}
-                </p>
-                <button
+              {layoutMode === "single" && controlBar}
+            </div>
+          )}
+
+          {languageSheet}
+          {liveSettingsSheet}
+
+          <AnimatePresence>
+            {setupMenuOpen && (
+              <>
+                <motion.button
                   type="button"
-                  disabled={processing}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    void startPushRecord();
-                  }}
-                  onPointerUp={() => stopPushRecord()}
-                  onPointerLeave={() => stopPushRecord()}
-                  className="w-20 h-20 rounded-full flex items-center justify-center text-3xl text-white disabled:opacity-50"
-                  style={{
-                    background: "linear-gradient(135deg, #6c5ce7 0%, #a78bfa 100%)",
-                    touchAction: "none",
-                  }}
+                  className="fixed inset-0 z-[1100] bg-black/50"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setSetupMenuOpen(false)}
+                />
+                <motion.div
+                  className="fixed left-0 right-0 bottom-0 z-[1101] mx-auto max-w-[430px] px-4 py-4 rounded-t-[20px]"
+                  style={{ background: "#1a1a2e" }}
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
                 >
-                  🎤
-                </button>
-              </div>
-            ) : (
-              <div className="shrink-0 py-3 text-center text-xs text-white/45 border-t border-white/10">
-                실시간 인식 중 · 차례는 발화 후 자동 전환됩니다
-              </div>
+                  <p className="text-white font-medium mb-3">기록</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPastSessions([]);
+                      saveSessions([]);
+                      setSetupMenuOpen(false);
+                    }}
+                    className="w-full py-3 rounded-xl bg-white/10 text-white text-sm"
+                  >
+                    대화 기록 전체 삭제
+                  </button>
+                </motion.div>
+              </>
             )}
-          </div>
-        )}
-      </motion.div>
+          </AnimatePresence>
+        </motion.div>
       ) : null}
     </AnimatePresence>
   );

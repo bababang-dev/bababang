@@ -28,6 +28,7 @@ export function BottomNav() {
   const hideBottomNav = useStore(
     (s) =>
       s.chatOpen ||
+      s.interpreterOpen ||
       s.writePostOpen ||
       s.promotionModalOpen ||
       s.loginModalOpen ||
