@@ -423,97 +423,12 @@ async function perplexitySearch(
 
   sendStatus("🔍 관련 정보 검색중...");
 
-  const baiduPack = await searchBaiduMulti(
-    searchQueryZh,
-    strategy.baidu,
-    process.env.SERPAPI_KEY || ""
-  );
-  const baiduResult = { texts: baiduPack.lines, urls: baiduPack.urls };
-
-  if (baiduResult.texts.length > 0) {
-    searchContext += "=== 검색 결과 요약 ===\n";
-    searchContext += baiduResult.texts.join("\n") + "\n\n";
-    totalSources += baiduResult.texts.length;
-  }
-
-  const blockedDomains = [
-    "dianping.com",
-    "xiaohongshu.com",
-    "meituan.com",
-    "douyin.com",
-    "baidu.com/sf",
-  ];
-
-  const crawlableUrls = baiduResult.urls
-    .filter((item) => item.url && item.url.startsWith("http"))
-    .filter((item) => !blockedDomains.some((d) => item.url.includes(d)))
-    .slice(0, 5);
-
-  if (crawlableUrls.length > 0) {
-    sendStatus("📄 " + crawlableUrls.length + "개 페이지 전문 크롤링중...");
-
-    const crawled = await Promise.all(
-      crawlableUrls.map(async (item, i) => {
-        sendStatus("📄 [" + (i + 1) + "/" + crawlableUrls.length + "] 크롤링중...");
-        const content = await firecrawlScrape(item.url);
-        return { content, url: item.url, title: item.title };
-      })
-    );
-
-    const fullTexts = crawled.filter((c) => c.content.length > 200);
-    if (fullTexts.length > 0) {
-      searchContext += "\n=== 상세 전문 정보 (출처 포함) ===\n";
-      fullTexts.forEach((item, i) => {
-        searchContext +=
-          "[출처 " +
-          (i + 1) +
-          "] " +
-          item.title +
-          "\nURL: " +
-          item.url +
-          "\n" +
-          item.content.slice(0, 3000) +
-          "\n\n";
-      });
-      totalSources += fullTexts.length;
-
-      for (const item of fullTexts) {
-        const rid = await cacheReview(
-          {
-            text: item.content.slice(0, 5000),
-            url: item.url,
-            language: "zh",
-          },
-          searchQueryZh,
-          "firecrawl",
-          processedMessage
-        );
-        if (rid) savedReviewIds.push(rid);
-      }
-      console.log("=== Firecrawl 전문 " + fullTexts.length + "개 크롤링+저장 완료 ===");
-    }
-  }
-
-  sendStatus("🇰🇷 네이버 블로그 검색중...");
-  const naverRaw = await searchNaver(userMessage);
-  const naverResults = naverRaw.map((item) => ({
-    title: stripHtml(item.title),
-    desc: stripHtml(item.desc),
-    source: item.source,
-    link: item.link,
-  }));
-  if (naverResults.length > 0) {
-    searchContext += "\n=== 한국인 후기 ===\n";
-    for (const item of naverResults.slice(0, 10)) {
-      searchContext += "[" + item.source + "] " + item.title + ": " + item.desc.slice(0, 300) + "\n";
-    }
-    searchContext += "\n";
-    totalSources += naverResults.length;
-  }
-
   let amapResults: AmapPoi[] = [];
+
+  // 1) 高德
   if (strategy.useAmap) {
     sendStatus("🗺️ 가게 상세 정보 검색중...");
+    console.log("=== 高德 검색 시작 ===");
     const amapOptions: AmapSearchOptions = { sortrule: 2, offset: 20 };
     if (strategy.amapType) amapOptions.types = strategy.amapType;
     if (userLocation) {
@@ -522,6 +437,8 @@ async function perplexitySearch(
     }
 
     amapResults = await amapSearch(searchQueryZh, "青岛", amapOptions);
+    const amapN = amapResults?.length ?? 0;
+    console.log("=== 高德 검색 완료: " + amapN + "개 ===");
     if (amapResults && amapResults.length > 0) {
       searchContext += "\n=== 가게 상세 정보 (高德地图) ===\n";
       for (const poi of amapResults.slice(0, 20)) {
@@ -567,8 +484,153 @@ async function perplexitySearch(
         if (sid) savedShopIds.push(sid);
       }
     }
+  } else {
+    console.log("=== 高德 검색 스킵 (useAmap false) ===");
   }
 
+  // 2) SerpAPI 百度
+  console.log("=== SerpAPI 百度 검색 시작 ===");
+  const baiduPack = await searchBaiduMulti(
+    searchQueryZh,
+    strategy.baidu,
+    process.env.SERPAPI_KEY || ""
+  );
+  const baiduResult = { texts: baiduPack.lines, urls: baiduPack.urls };
+  console.log(
+    "=== SerpAPI 百度 검색 완료: 스니펫 " +
+      baiduResult.texts.length +
+      "개, URL " +
+      baiduResult.urls.length +
+      "개 ==="
+  );
+
+  if (baiduResult.texts.length > 0) {
+    searchContext += "=== 검색 결과 요약 ===\n";
+    searchContext += baiduResult.texts.join("\n") + "\n\n";
+    totalSources += baiduResult.texts.length;
+  }
+
+  // 3) DB review_cache
+  try {
+    const likePart = searchQueryZh.slice(0, 10);
+    const [dbReviewsRows] = await pool.query(
+      "SELECT shop_name, review_text, source FROM review_cache WHERE (review_text LIKE ? OR shop_name LIKE ?) ORDER BY cached_at DESC LIMIT 20",
+      ["%" + likePart + "%", "%" + likePart + "%"]
+    );
+    const dbReviews = dbReviewsRows as RowDataPacket[];
+    if (Array.isArray(dbReviews) && dbReviews.length > 0) {
+      searchContext += "\n=== BabaBang 축적 데이터 (小红书/네이버 등) ===\n";
+      for (const r of dbReviews) {
+        const row = r as { shop_name?: string; review_text?: string; source?: string };
+        searchContext +=
+          "[" +
+          String(row.source ?? "") +
+          "] " +
+          (row.shop_name || "") +
+          ": " +
+          String(row.review_text ?? "").slice(0, 300) +
+          "\n";
+      }
+      totalSources += dbReviews.length;
+      console.log("=== DB 리뷰 " + dbReviews.length + "개 검색됨 ===");
+    } else {
+      console.log("=== DB 리뷰 0개 ===");
+    }
+  } catch (e) {
+    console.log("=== DB 리뷰 검색 실패 ===", e);
+  }
+
+  // 4) 네이버
+  console.log("=== 네이버 검색 시작 ===");
+  sendStatus("🇰🇷 네이버 블로그 검색중...");
+  const naverRaw = await searchNaver(userMessage);
+  const naverResults = naverRaw.map((item) => ({
+    title: stripHtml(item.title),
+    desc: stripHtml(item.desc),
+    source: item.source,
+    link: item.link,
+  }));
+  console.log("=== 네이버 검색 완료: " + naverResults.length + "개 ===");
+  if (naverResults.length > 0) {
+    searchContext += "\n=== 한국인 후기 ===\n";
+    for (const item of naverResults.slice(0, 10)) {
+      searchContext += "[" + item.source + "] " + item.title + ": " + item.desc.slice(0, 300) + "\n";
+    }
+    searchContext += "\n";
+    totalSources += naverResults.length;
+  }
+
+  // 5) Crawl4AI (firecrawlScrape)
+  const blockedDomains = [
+    "dianping.com",
+    "xiaohongshu.com",
+    "meituan.com",
+    "douyin.com",
+    "baidu.com/sf",
+  ];
+
+  const crawlableUrls = baiduResult.urls
+    .filter((item) => item.url && item.url.startsWith("http"))
+    .filter((item) => !blockedDomains.some((d) => item.url.includes(d)))
+    .slice(0, 5);
+
+  if (crawlableUrls.length > 0) {
+    console.log("=== Crawl4AI 크롤링 시작 ===");
+    console.log("=== Crawl4AI 대상 URL " + crawlableUrls.length + "개 ===");
+    sendStatus("📄 " + crawlableUrls.length + "개 페이지 전문 크롤링중...");
+
+    const crawled = await Promise.all(
+      crawlableUrls.map(async (item, i) => {
+        sendStatus("📄 [" + (i + 1) + "/" + crawlableUrls.length + "] 크롤링중...");
+        const content = await firecrawlScrape(item.url);
+        return { content, url: item.url, title: item.title };
+      })
+    );
+
+    const fullTexts = crawled.filter((c) => c.content.length > 200);
+    console.log(
+      "=== Crawl4AI 크롤링 완료: 원문 " +
+        crawled.length +
+        "개 중 전문(200자+) " +
+        fullTexts.length +
+        "개 ==="
+    );
+    if (fullTexts.length > 0) {
+      searchContext += "\n=== 상세 전문 정보 (출처 포함) ===\n";
+      fullTexts.forEach((item, i) => {
+        searchContext +=
+          "[출처 " +
+          (i + 1) +
+          "] " +
+          item.title +
+          "\nURL: " +
+          item.url +
+          "\n" +
+          item.content.slice(0, 3000) +
+          "\n\n";
+      });
+      totalSources += fullTexts.length;
+
+      for (const item of fullTexts) {
+        const rid = await cacheReview(
+          {
+            text: item.content.slice(0, 5000),
+            url: item.url,
+            language: "zh",
+          },
+          searchQueryZh,
+          "firecrawl",
+          processedMessage
+        );
+        if (rid) savedReviewIds.push(rid);
+      }
+    }
+  } else {
+    console.log("=== Crawl4AI 크롤링 스킵 (크롤 가능 URL 0개) ===");
+  }
+
+  // 6) shopDict
+  console.log("=== shopDict 매칭 시작 ===");
   const matchedShops = shopDictData.filter((s) => {
     return (
       s.koreanNames.some((name) => name.length >= 2 && userMessage.includes(name)) ||
@@ -583,7 +645,10 @@ async function perplexitySearch(
       searchContext += s.zh + " (한국어: " + s.koreanNames.join(",") + ")\n";
     }
   }
+  console.log("=== shopDict 매칭 완료: " + matchedShops.length + "개 ===");
 
+  // 7) knowledge_base
+  console.log("=== knowledge_base 검색 시작 ===");
   try {
     const slice = userMessage.slice(0, 20);
     const like = "%" + slice + "%";
@@ -592,6 +657,7 @@ async function perplexitySearch(
       [like, like]
     );
     const kbList = kbRows as RowDataPacket[];
+    console.log("=== knowledge_base 검색 완료: " + kbList.length + "개 ===");
     if (kbList.length > 0) {
       searchContext += "\n=== BabaBang 지식 베이스 ===\n";
       for (const kb of kbList) {
@@ -599,8 +665,8 @@ async function perplexitySearch(
           "[" + String(kb.title) + "]\n" + String(kb.content ?? "").slice(0, 1500) + "\n\n";
       }
     }
-  } catch {
-    /* ignore */
+  } catch (e) {
+    console.log("=== knowledge_base 검색 실패 ===", e);
   }
 
   sendStatus("📊 총 " + totalSources + "개 소스에서 답변 생성중...");
