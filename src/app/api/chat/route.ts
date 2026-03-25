@@ -554,7 +554,7 @@ async function perplexitySearch(
     const [dbReviewsRows] = await pool.query(
       "SELECT shop_name, review_text, source FROM review_cache WHERE " +
         whereClause +
-        " ORDER BY cached_at DESC LIMIT 20",
+        " ORDER BY cached_at DESC LIMIT 200",
       params
     );
     const dbReviews = dbReviewsRows as RowDataPacket[];
@@ -1260,7 +1260,7 @@ ${searchContext}`
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + apiKey },
           signal: AbortSignal.timeout(50000),
           body: JSON.stringify({
-            model: "gpt-4o",
+            model: "gpt-4o-mini",
             temperature: 0.7,
             max_tokens: 2000,
             stream: true,
