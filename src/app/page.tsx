@@ -5,8 +5,10 @@ import { AnimatePresence } from "framer-motion";
 import { useStore } from "@/stores/useStore";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { FloatingAIButton } from "@/components/layout/FloatingAIButton";
+import { FloatingInterpretButton } from "@/components/layout/FloatingInterpretButton";
 import { FloatingSecondaryFAB } from "@/components/layout/FloatingSecondaryFAB";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { InterpreterPanel } from "@/components/interpret/InterpreterPanel";
 import { HomePage } from "@/components/pages/HomePage";
 import { CommunityPage } from "@/components/pages/CommunityPage";
 import { RecommendPage } from "@/components/pages/RecommendPage";
@@ -41,6 +43,7 @@ export default function MainPage() {
   const login = useStore((s) => s.login);
   const loginModalOpen = useStore((s) => s.loginModalOpen);
   const chatOpen = useStore((s) => s.chatOpen);
+  const interpreterOpen = useStore((s) => s.interpreterOpen);
   const writePostOpen = useStore((s) => s.writePostOpen);
   const promotionModalOpen = useStore((s) => s.promotionModalOpen);
   const setLang = useStore((s) => s.setLang);
@@ -240,6 +243,7 @@ export default function MainPage() {
 
   const pageScrollLocked =
     chatOpen ||
+    interpreterOpen ||
     loginModalOpen ||
     writePostOpen ||
     promotionModalOpen ||
@@ -265,10 +269,12 @@ export default function MainPage() {
       </div>
 
       <BottomNav />
+      <FloatingInterpretButton />
       <FloatingAIButton />
       <FloatingSecondaryFAB />
 
       <ChatPanel />
+      <InterpreterPanel />
 
       <Toast />
 

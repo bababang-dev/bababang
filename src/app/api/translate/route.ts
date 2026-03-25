@@ -1,4 +1,14 @@
 import { NextResponse } from "next/server";
+import { logText } from "@/lib/textLogger";
+
+function labelToLangCode(label: string, raw: string | undefined): string {
+  if (raw && /^[a-z]{2}(-[a-z]+)?$/i.test(String(raw).trim())) {
+    return String(raw).trim().slice(0, 10).toLowerCase();
+  }
+  if (label === "한국어") return "ko";
+  if (label === "중국어") return "zh";
+  return label.slice(0, 10);
+}
 
 function normalizeTargetLang(
   raw: string | undefined
@@ -14,10 +24,11 @@ function normalizeTargetLang(
 
 export async function POST(request: Request) {
   try {
-    const { text, targetLang, mixedMode } = (await request.json()) as {
+    const { text, targetLang, mixedMode, sourceLang } = (await request.json()) as {
       text?: string;
       targetLang?: string;
       mixedMode?: boolean;
+      sourceLang?: string;
     };
     if (!text || !String(text).trim()) {
       return NextResponse.json({ error: "text required" }, { status: 400 });
@@ -66,6 +77,18 @@ export async function POST(request: Request) {
         choices?: Array<{ message?: { content?: string } }>;
       };
       const translation = (data.choices?.[0]?.message?.content ?? "").trim();
+      const outCode = labelToLangCode(norm.label, targetLang);
+      const inCode =
+        typeof sourceLang === "string" && sourceLang.trim()
+          ? sourceLang.trim().slice(0, 10)
+          : "auto";
+      void logText({
+        type: "translate_text",
+        inputText: String(text),
+        outputText: translation,
+        inputLang: inCode,
+        outputLang: outCode,
+      });
       return NextResponse.json({
         translation,
         translated: translation,
@@ -144,6 +167,23 @@ export async function POST(request: Request) {
 
     const translation = result.translated.trim();
     const corrected = result.corrected.trim();
+
+    const outCode = labelToLangCode(targetLangLabel, targetLang);
+    const inCode =
+      typeof sourceLang === "string" && sourceLang.trim()
+        ? sourceLang.trim().slice(0, 10)
+        : targetLangLabel === "한국어"
+          ? "zh"
+          : targetLangLabel === "중국어"
+            ? "ko"
+            : "auto";
+    void logText({
+      type: "translate_text",
+      inputText: String(text),
+      outputText: translation,
+      inputLang: inCode,
+      outputLang: outCode,
+    });
 
     return NextResponse.json({
       translation,

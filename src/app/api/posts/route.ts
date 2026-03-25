@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import type { ResultSetHeader } from "mysql2";
+import { logText } from "@/lib/textLogger";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,12 @@ export async function POST(request: Request) {
     );
 
     const header = result as ResultSetHeader;
+    void logText({
+      userId: typeof userId === "number" && userId > 0 ? userId : undefined,
+      type: "community_post",
+      inputText: String(title ?? ""),
+      outputText: String(content ?? ""),
+    });
     return NextResponse.json({ success: true, postId: header.insertId, tags: finalTags });
   } catch (e: unknown) {
     const err = e as { message?: string };

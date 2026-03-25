@@ -28,6 +28,9 @@ interface AppState {
   chatOpen: boolean;
   setChatOpen: (open: boolean) => void;
   toggleChat: () => void;
+  /** 동시통역 전체 화면 패널 */
+  interpreterOpen: boolean;
+  setInterpreterOpen: (open: boolean) => void;
   /** 홈 등에서 채팅 열 때 자동 전송할 질문 (전송 후 ChatPanel에서 비움) */
   chatPendingPrompt: string | null;
   setChatPendingPrompt: (text: string | null) => void;
@@ -183,6 +186,8 @@ export const useStore = create<AppState>((set, get) => ({
   chatOpen: false,
   setChatOpen: (open) => set({ chatOpen: open }),
   toggleChat: () => set((s) => ({ chatOpen: !s.chatOpen })),
+  interpreterOpen: false,
+  setInterpreterOpen: (open) => set({ interpreterOpen: open }),
   chatPendingPrompt: null,
   setChatPendingPrompt: (text) => set({ chatPendingPrompt: text }),
   isKeyboardOpen: false,

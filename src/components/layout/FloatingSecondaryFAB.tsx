@@ -14,6 +14,7 @@ export function FloatingSecondaryFAB() {
   const hideFab = useStore(
     (s) =>
       s.chatOpen ||
+      s.interpreterOpen ||
       s.writePostOpen ||
       s.promotionModalOpen ||
       s.loginModalOpen

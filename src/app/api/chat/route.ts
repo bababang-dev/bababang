@@ -833,6 +833,7 @@ export async function POST(request: Request) {
     userId?: unknown;
     userLocation?: unknown;
     cacheMaxAgeDays?: unknown;
+    uiLang?: unknown;
   };
   try {
     body = await request.json();
@@ -1522,6 +1523,24 @@ ${searchContext}`
           ]);
         } catch (dbErr) {
           console.error("chat_history insert:", dbErr);
+        }
+
+        try {
+          const { logText } = await import("@/lib/textLogger");
+          const uiLang =
+            typeof body.uiLang === "string" && (body.uiLang === "ko" || body.uiLang === "zh")
+              ? body.uiLang
+              : "ko";
+          await logText({
+            userId: chatUserId,
+            type: "chat",
+            inputText: userMessage,
+            outputText: fullContentForUser,
+            inputLang: uiLang,
+            outputLang: uiLang,
+          });
+        } catch (logErr) {
+          console.error("text_logs chat:", logErr);
         }
       } catch (e: unknown) {
         console.error("Stream error:", e);

@@ -391,6 +391,30 @@ export async function GET() {
         INDEX idx_category (category)
       ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS text_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
+        type ENUM(
+          'chat',
+          'translate_text',
+          'translate_photo',
+          'translate_voice',
+          'interpret',
+          'ai_write',
+          'community_post',
+          'community_comment'
+        ) NOT NULL,
+        input_text TEXT,
+        output_text TEXT,
+        input_lang VARCHAR(10),
+        output_lang VARCHAR(10),
+        tokens_used INT DEFAULT 0,
+        cost_estimate DECIMAL(10,4) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `);
     try {
       await conn.query("ALTER TABLE knowledge_base ADD FULLTEXT idx_content (content)");
     } catch {

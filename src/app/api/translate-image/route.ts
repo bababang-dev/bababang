@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
+import { logText } from "@/lib/textLogger";
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       image?: string;
       mode?: "translate" | "menu" | "document";
+      targetLang?: string;
     };
-    const { image, mode = "translate" } = body;
+    const { image, mode = "translate", targetLang = "ko" } = body;
     if (!image || typeof image !== "string") {
       return NextResponse.json({ error: "image required" }, { status: 400 });
     }
@@ -53,6 +55,14 @@ export async function POST(request: Request) {
     }
     const translation =
       data.choices?.[0]?.message?.content?.trim() || "번역에 실패했어요.";
+
+    void logText({
+      type: "translate_photo",
+      inputText: "이미지번역",
+      outputText: translation,
+      inputLang: "auto",
+      outputLang: String(targetLang || "ko").slice(0, 10),
+    });
 
     try {
       const pool = (await import("@/lib/db")).default;
