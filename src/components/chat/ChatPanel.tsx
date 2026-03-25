@@ -144,60 +144,6 @@ type AiSegment =
   | { type: "text"; lines: string[] }
   | { type: "chips"; lines: string[] };
 
-function TextBlockWithChecklist({
-  lines,
-  segIdx,
-  messageKey,
-}: {
-  lines: string[];
-  segIdx: number;
-  messageKey: string;
-}) {
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
-  return (
-    <div className="flex flex-col gap-0.5">
-      {lines.map((line, li) => {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("□") || trimmed.startsWith("☐")) {
-          const id = `${messageKey}-s${segIdx}-l${li}`;
-          const isChecked = checked[id] ?? false;
-          const label = trimmed.replace(/^□\s*|☐\s*/, "");
-          return (
-            <label
-              key={id}
-              className="flex gap-2 py-1 cursor-pointer items-start text-left"
-            >
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={(e) =>
-                  setChecked((s) => ({ ...s, [id]: e.target.checked }))
-                }
-                className="mt-1 shrink-0 accent-[#6c5ce7]"
-              />
-              <span
-                className={
-                  isChecked ? "line-through text-white/50" : "text-white/95"
-                }
-              >
-                {label}
-              </span>
-            </label>
-          );
-        }
-        return (
-          <div
-            key={`${messageKey}-plain-s${segIdx}-l${li}`}
-            className="whitespace-pre-wrap break-words"
-          >
-            {line}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function segmentAiMessage(text: string): AiSegment[] {
   const rawLines = text.split(/\r?\n/);
   const segments: AiSegment[] = [];
@@ -238,12 +184,10 @@ function AiMessageContent({
   text,
   isStatusPhase,
   onChipTap,
-  messageKey,
 }: {
   text: string;
   isStatusPhase: boolean;
   onChipTap: (line: string) => void;
-  messageKey?: string;
 }) {
   if (isStatusPhase) {
     return <>{text}</>;
@@ -257,18 +201,8 @@ function AiMessageContent({
         }
         if (seg.type === "text") {
           return (
-            <div key={segIdx}>
-              {messageKey ? (
-                <TextBlockWithChecklist
-                  lines={seg.lines}
-                  segIdx={segIdx}
-                  messageKey={messageKey}
-                />
-              ) : (
-                <div className="whitespace-pre-wrap break-words">
-                  {seg.lines.join("\n")}
-                </div>
-              )}
+            <div key={segIdx} className="whitespace-pre-wrap break-words">
+              {seg.lines.join("\n")}
             </div>
           );
         }
@@ -456,7 +390,6 @@ export function ChatPanel() {
     { emoji: "🌤️", text: "오늘 날씨 어때?" },
     { emoji: "📸", text: "사진 번역해줘", action: "camera" },
     { emoji: "🎙️", text: "음성번역 시작", action: "voice" },
-    { emoji: "🤖", text: "은행 계좌 개설 방법 알려줘" },
     { emoji: "📱", text: "중국 유심 개통 방법" },
   ];
 
@@ -1086,7 +1019,6 @@ export function ChatPanel() {
                             text={aiDisplayText}
                             isStatusPhase={isStatusPhase}
                             onChipTap={(line) => void sendMessage(line)}
-                            messageKey={`ai-${i}`}
                           />
                           {isFreeQuotaCta ? (
                             <motion.button

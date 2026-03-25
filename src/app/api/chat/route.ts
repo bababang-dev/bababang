@@ -1228,7 +1228,19 @@ export async function POST(request: Request) {
 📍 기관명: 주소
 🕐 업무시간
 📞 전화번호
-💡 팁: 현실적인 조언${userInterestsLine}`;
+💡 팁: 현실적인 조언
+
+=== 답변 길이/상세도 규칙 ===
+1. 최대한 길고 상세하게 답변해. 짧게 요약하지 마.
+2. 아는 정보는 전부 다 말해. 생략하지 마.
+3. 최소 800자 이상 답변해. 1500자 이상이면 더 좋아.
+4. 검색 데이터에 있는 내용은 전부 활용해서 답변에 포함시켜.
+5. 맛집 추천이면 데이터에 있는 가게 전부 추천해. 5개로 제한하지 마.
+6. 절차/방법 질문이면 단계별로 상세하게. 각 단계마다 구체적 설명 포함.
+7. 관련된 추가 정보도 자발적으로 알려줘. 유저가 안 물어봐도.
+8. 비용, 소요시간, 준비물, 주의사항 등 실용 정보 꼭 포함.
+9. 실제 교민들의 경험담이 DB에 있으면 인용해서 알려줘: '실제 교민 후기에 따르면...'
+10. 마지막에 관련 팁이나 주의사항 꼭 추가.${userInterestsLine}`;
 
         const userContent = searchContext
           ? `질문: ${userMessage}
@@ -1262,7 +1274,7 @@ ${searchContext}`
           body: JSON.stringify({
             model: "gpt-4o-mini",
             temperature: 0.7,
-            max_tokens: 2000,
+            max_tokens: 3000,
             stream: true,
             messages: [
               { role: "system", content: systemPrompt },
