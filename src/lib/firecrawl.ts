@@ -1,4 +1,21 @@
 export async function firecrawlScrape(url: string): Promise<string> {
+  try {
+    const res = await fetch(
+      "http://8.218.238.203:8081/?url=" + encodeURIComponent(url),
+      {
+        signal: AbortSignal.timeout(25000),
+      }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as { ok?: boolean; text?: string };
+      if (data.ok && data.text) {
+        return data.text;
+      }
+    }
+  } catch {
+    /* Crawl4AI 실패 → Firecrawl 폴백 */
+  }
+
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (!apiKey) return "";
 
