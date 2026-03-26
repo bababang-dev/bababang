@@ -609,7 +609,6 @@ async function perplexitySearch(
     "자세히",
     "많이",
     "전부",
-    "다",
     "좀더",
     "제발",
     "빨리",
@@ -638,7 +637,11 @@ async function perplexitySearch(
     "유명한",
   ];
   for (const w of removeWords) {
-    naverKeyword1 = naverKeyword1.replace(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), " ");
+    const regex = new RegExp(
+      "(?<=^|\\s)" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "(?=\\s|$)",
+      "g"
+    );
+    naverKeyword1 = naverKeyword1.replace(regex, " ");
   }
   naverKeyword1 = naverKeyword1.replace(/\s+/g, " ").trim();
 
